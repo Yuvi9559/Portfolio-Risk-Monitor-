@@ -1,0 +1,70 @@
+version: "3.9"
+
+services:
+
+  # ── PostgreSQL + TimescaleDB ─────────────────────────────────
+  db:
+    image: timescale/timescaledb:latest-pg16
+    container_name: prm_db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: portfoliodb
+    volumes:
+      - db_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Redis ─────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: prm_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ── FastAPI Backend ───────────────────────────────────────────
+  api:
+    build: ./backend
+    container_name: prm_api
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/portfoliodb
+      DATABASE_URL_SYNC: postgresql://postgres:postgres@db:5432/portfoliodb
+      REDIS_URL: redis://redis:6379/0
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend/app:/app/app
+    restart: unless-stopped
+
+  # ── React Frontend ────────────────────────────────────────────
+  frontend:
+    build: ./frontend
+    container_name: prm_frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  db_data:
+  redis_data:
