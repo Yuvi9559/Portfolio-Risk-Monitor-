@@ -1,4 +1,4 @@
-const BASE = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const BASE = import.meta.env.VITE_API_URL || "https://portfolio-risk-monitor-production.up.railway.app";
 
 async function request(method, path, body, token) {
   const headers = { "Content-Type": "application/json" };
@@ -49,7 +49,7 @@ export const api = {
 };
 
 // WebSocket
-const WS_BASE = (import.meta.env.VITE_WS_URL || "ws://localhost:8000").replace(/^http/, "ws");
+const WS_BASE = (import.meta.env.VITE_WS_URL || "wss://portfolio-risk-monitor-production.up.railway.app").replace(/^http/, "ws");
 
 export function createRiskSocket(portfolioId, token, onMessage, onError) {
   const ws = new WebSocket(`${WS_BASE}/ws/portfolio/${portfolioId}?token=${token}`);
