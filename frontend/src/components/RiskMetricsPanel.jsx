@@ -1,125 +1,180 @@
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, AreaChart, Area } from "recharts";
+import React from 'react';
 
-const fmt = (n, d = 2) => (typeof n === "number" ? n.toFixed(d) : "—");
-const pct  = (n, d = 2) => `${(n * 100).toFixed(d)}%`;
-const usd  = (n) => `$${n?.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) ?? "—"}`;
-
-function MetricCard({ label, value, sub, color, large }) {
+function SkeletonCard() {
   return (
-    <div className={`metric-card ${large ? "large" : ""}`} style={color ? {"--accent": color} : {}}>
-      <div className="metric-label">{label}</div>
-      <div className="metric-value" style={color ? {color} : {}}>{value}</div>
-      {sub && <div className="metric-sub">{sub}</div>}
+    <div className="risk-card">
+      <div className="risk-card-top">
+        <div className="skeleton skeleton-text" style={{ width: '55%' }} />
+      </div>
+      <div className="skeleton skeleton-value" />
+      <div className="skeleton skeleton-desc" />
     </div>
   );
 }
 
-export default function RiskMetricsPanel({ data }) {
+function MetricCard({ label, value, formatted, description, colorClass, tooltip, prefix = '', suffix = '' }) {
+  return (
+    <div className={`risk-card ${colorClass === 'danger' ? 'danger' : colorClass === 'warning' ? 'warning' : ''}`}>
+      <div className="risk-card-top">
+        <div className="risk-label">{label}</div>
+        {tooltip && (
+          <div className="risk-tooltip-icon" title={tooltip}>ⓘ</div>
+        )}
+      </div>
+      <div className={`risk-value ${colorClass || ''}`}>
+        {prefix}{formatted ?? value}{suffix}
+      </div>
+      {description && <div className="risk-desc">{description}</div>}
+    </div>
+  );
+}
+
+function formatCurrency(val, currency = 'USD') {
+  if (val == null || isNaN(val)) return '—';
+  const symbols = { USD: '$', INR: '₹', EUR: '€', GBP: '£' };
+  const sym = symbols[currency] || '$';
+  const abs = Math.abs(val);
+  let str;
+  if (abs >= 1_000_000) str = `${sym}${(val / 1_000_000).toFixed(2)}M`;
+  else if (abs >= 1_000) str = `${sym}${(val / 1_000).toFixed(2)}K`;
+  else str = `${sym}${val.toFixed(2)}`;
+  return str;
+}
+
+function formatPct(val) {
+  if (val == null || isNaN(val)) return '—';
+  const sign = val >= 0 ? '+' : '';
+  return `${sign}${(val * 100).toFixed(2)}%`;
+}
+
+function formatRaw(val, decimals = 4) {
+  if (val == null || isNaN(val)) return '—';
+  return Number(val).toFixed(decimals);
+}
+
+function getSharpeColor(v) {
+  if (v == null) return '';
+  if (v >= 1) return 'accent';
+  if (v >= 0) return 'warning';
+  return 'danger';
+}
+
+function getDailyPnlClass(v) {
+  if (v == null) return '';
+  return v >= 0 ? 'positive' : 'negative';
+}
+
+export default function RiskMetricsPanel({ riskData, currency = 'USD' }) {
+  if (!riskData) {
+    return (
+      <div>
+        <div className="risk-grid" style={{ marginBottom: 16 }}>
+          {[...Array(6)].map((_, i) => <SkeletonCard key={i} />)}
+        </div>
+        <div className="risk-grid-secondary">
+          {[...Array(4)].map((_, i) => <SkeletonCard key={i} />)}
+        </div>
+      </div>
+    );
+  }
+
   const {
-    portfolio_value, daily_return_pct,
-    var_95, cvar_95, var_99, var_95_dollar,
-    sharpe, sortino, beta, max_drawdown,
-    holdings, weights,
-  } = data;
+    portfolio_value,
+    daily_pnl,
+    daily_pnl_pct,
+    var_95,
+    var_99,
+    cvar_95,
+    sharpe_ratio,
+    sortino_ratio,
+    max_drawdown,
+    volatility,
+    beta,
+  } = riskData;
 
-  const returnColor = daily_return_pct >= 0 ? "#16a34a" : "#dc2626";
-  const varColor    = "#dc2626";
-
-  // Weights pie data for simple bar chart
-  const weightData = Object.entries(weights || {}).map(([ticker, w]) => ({
-    ticker,
-    weight: (w * 100).toFixed(1),
-  }));
+  const dailyPnlColor = getDailyPnlClass(daily_pnl);
+  const pnlArrow = daily_pnl >= 0 ? '▲' : '▼';
+  const sharpeColor = getSharpeColor(sharpe_ratio);
 
   return (
-    <div className="risk-panel">
-      {/* ── Portfolio summary ── */}
-      <div className="metrics-grid top-metrics">
+    <div>
+      {/* Primary metrics */}
+      <div className="risk-grid" style={{ marginBottom: 16 }}>
         <MetricCard
-          large
           label="Portfolio Value"
-          value={usd(portfolio_value)}
-          sub="Current market value"
+          formatted={formatCurrency(portfolio_value, currency)}
+          description="Total current market value"
+          colorClass="accent"
+          tooltip="Sum of all holdings at current market price"
         />
         <MetricCard
-          label="Today's Return"
-          value={`${daily_return_pct >= 0 ? "+" : ""}${fmt(daily_return_pct, 3)}%`}
-          color={returnColor}
-          sub="Latest daily log-return"
+          label="Daily P&L"
+          formatted={`${pnlArrow} ${formatCurrency(daily_pnl, currency)} (${formatPct(daily_pnl_pct)})`}
+          description="Today's unrealised gain/loss"
+          colorClass={dailyPnlColor}
+          tooltip="Change in portfolio value since previous close"
         />
         <MetricCard
-          label="VaR 95%"
-          value={pct(var_95)}
-          sub={`~${usd(var_95_dollar)} at risk`}
-          color={varColor}
+          label="VaR 95% (1-Day)"
+          formatted={formatCurrency(var_95, currency)}
+          description="Max expected 1-day loss at 95% confidence"
+          colorClass="danger"
+          tooltip="Value at Risk: there is a 5% chance of losing more than this amount in a single trading day"
+        />
+        <MetricCard
+          label="Sharpe Ratio"
+          formatted={formatRaw(sharpe_ratio, 2)}
+          description={sharpe_ratio >= 1 ? 'Excellent risk-adjusted return' : sharpe_ratio >= 0 ? 'Acceptable performance' : 'Poor risk-adjusted return'}
+          colorClass={sharpeColor}
+          tooltip="(Return - Risk-free rate) / Volatility. Higher is better. ≥1 is considered good."
+        />
+        <MetricCard
+          label="Max Drawdown"
+          formatted={formatPct(max_drawdown)}
+          description="Largest peak-to-trough decline"
+          colorClass="danger"
+          tooltip="Percentage decline from the highest portfolio value to the lowest"
+        />
+        <MetricCard
+          label="Portfolio Volatility"
+          formatted={formatPct(volatility)}
+          description="Annualised standard deviation"
+          colorClass=""
+          tooltip="Annualised volatility of portfolio returns"
+        />
+      </div>
+
+      {/* Secondary metrics */}
+      <div className="risk-grid-secondary">
+        <MetricCard
+          label="Sortino Ratio"
+          formatted={formatRaw(sortino_ratio, 2)}
+          description="Downside risk-adjusted return"
+          colorClass={getSharpeColor(sortino_ratio)}
+          tooltip="Like Sharpe, but only penalises downside volatility"
+        />
+        <MetricCard
+          label="Portfolio Beta"
+          formatted={formatRaw(beta, 2)}
+          description="Sensitivity to benchmark"
+          colorClass=""
+          tooltip="Beta > 1 means more volatile than benchmark; < 1 means less volatile"
+        />
+        <MetricCard
+          label="VaR 99% (1-Day)"
+          formatted={formatCurrency(var_99, currency)}
+          description="Max expected 1-day loss at 99% confidence"
+          colorClass="danger"
+          tooltip="Only 1% chance of losing more than this in a single day"
         />
         <MetricCard
           label="CVaR 95%"
-          value={pct(cvar_95)}
-          sub="Expected shortfall"
-          color={varColor}
+          formatted={formatCurrency(cvar_95, currency)}
+          description="Expected loss beyond VaR 95%"
+          colorClass="danger"
+          tooltip="Conditional VaR (Expected Shortfall): average loss when loss exceeds VaR 95%"
         />
       </div>
-
-      {/* ── Risk ratios ── */}
-      <div className="metrics-grid ratio-metrics">
-        <MetricCard label="Sharpe Ratio"  value={fmt(sharpe, 3)}  sub="Annualised (252d)" />
-        <MetricCard label="Sortino Ratio" value={fmt(sortino, 3)} sub="Downside deviation" />
-        <MetricCard label="Beta (vs SPY)" value={fmt(beta, 3)}    sub="Market sensitivity" />
-        <MetricCard label="Max Drawdown"  value={pct(max_drawdown)} sub="Peak-to-trough" color={varColor} />
-        <MetricCard label="VaR 99%"       value={pct(var_99)}     sub="99% confidence" color={varColor} />
-      </div>
-
-      {/* ── Holdings table ── */}
-      <div className="section-block">
-        <div className="section-title">Holdings</div>
-        <div className="holdings-table-wrap">
-          <table className="holdings-table">
-            <thead>
-              <tr>
-                <th>Ticker</th>
-                <th>Shares</th>
-                <th>Price</th>
-                <th>Value</th>
-                <th>Weight</th>
-                <th>P&L</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(holdings || []).map(h => (
-                <tr key={h.ticker}>
-                  <td className="ticker-cell">{h.ticker}</td>
-                  <td>{fmt(h.shares)}</td>
-                  <td>{h.current_price ? usd(h.current_price) : "—"}</td>
-                  <td>{h.market_value  ? usd(h.market_value) : "—"}</td>
-                  <td>{weights?.[h.ticker] ? pct(weights[h.ticker]) : "—"}</td>
-                  <td className={h.pnl_pct >= 0 ? "pos" : "neg"}>
-                    {h.pnl_pct != null ? `${h.pnl_pct >= 0 ? "+" : ""}${h.pnl_pct}%` : "—"}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* ── Weight breakdown ── */}
-      {weightData.length > 0 && (
-        <div className="section-block">
-          <div className="section-title">Portfolio Weights</div>
-          <div className="weight-bars">
-            {weightData.map(({ ticker, weight }) => (
-              <div key={ticker} className="weight-row">
-                <span className="weight-ticker">{ticker}</span>
-                <div className="weight-bar-wrap">
-                  <div className="weight-bar-fill" style={{ width: `${weight}%` }} />
-                </div>
-                <span className="weight-pct">{weight}%</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   );
 }

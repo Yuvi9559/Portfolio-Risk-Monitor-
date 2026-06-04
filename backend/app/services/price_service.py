@@ -1,164 +1,165 @@
-"""
-Price Service
-=============
-Fetches OHLCV price data from Yahoo Finance, caches latest prices
-in Redis, and persists history to TimescaleDB (prices table).
-"""
 from __future__ import annotations
 
-import json
+import asyncio
 import logging
-from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import List, Optional
 
 import pandas as pd
-import redis.asyncio as aioredis
 import yfinance as yf
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import get_settings
+logger = logging.getLogger(__name__)
 
-settings = get_settings()
-log = logging.getLogger(__name__)
+# ── Optional Redis caching ────────────────────────────────────────────────────
+try:
+    import redis.asyncio as aioredis
+    from app.config import get_settings as _get_settings
 
-
-# ── Redis client (module-level singleton) ─────────────────────
-_redis: Optional[aioredis.Redis] = None
-
-
-async def get_redis() -> aioredis.Redis:
-    global _redis
-    if _redis is None:
-        _redis = await aioredis.from_url(
-            settings.REDIS_URL,
-            encoding="utf-8",
-            decode_responses=True,
-        )
-    return _redis
-
-
-# ── Cache helpers ─────────────────────────────────────────────
-async def cache_price(ticker: str, price: float) -> None:
-    r = await get_redis()
-    await r.setex(f"price:{ticker}", settings.PRICE_CACHE_TTL, str(price))
-
-
-async def get_cached_price(ticker: str) -> Optional[float]:
-    r = await get_redis()
-    val = await r.get(f"price:{ticker}")
-    return float(val) if val else None
-
-
-async def publish_price_update(ticker: str, price: float) -> None:
-    """Publish to Redis channel so WS manager can relay to clients."""
-    r = await get_redis()
-    await r.publish("price_updates", json.dumps({"ticker": ticker, "price": price}))
-
-
-# ── Price fetch ───────────────────────────────────────────────
-async def fetch_and_store_prices(
-    tickers: list[str],
-    db: AsyncSession,
-    period: str = "1y",
-) -> pd.DataFrame:
-    """
-    1. Fetch from Yahoo Finance.
-    2. Upsert to TimescaleDB.
-    3. Cache latest price in Redis + publish update.
-    Returns a DataFrame of close prices indexed by date.
-    """
-    all_tickers = list(set(tickers + [settings.BENCHMARK_TICKER]))
-
-    log.info(f"Fetching prices for: {all_tickers}")
-    raw = yf.download(
-        tickers=all_tickers,
-        period=period,
-        auto_adjust=True,
-        progress=False,
-        threads=True,
+    _settings = _get_settings()
+    _redis_client: aioredis.Redis | None = aioredis.from_url(
+        _settings.REDIS_URL, decode_responses=True
     )
+except Exception:
+    _redis_client = None
+    logger.warning("Redis not available – price caching disabled.")
 
-    if raw.empty:
-        raise ValueError("yfinance returned empty DataFrame")
-
-    # Handle single vs multiple ticker structure
-    if len(all_tickers) == 1:
-        close = raw[["Close"]].rename(columns={"Close": all_tickers[0]})
-    else:
-        close = raw["Close"] if "Close" in raw.columns else raw.xs("Close", axis=1, level=0)
-
-    close = close.dropna(how="all")
-
-    # ── Upsert to TimescaleDB ─────────────────────────────────
-    rows = []
-    for ts, row in close.iterrows():
-        for ticker in close.columns:
-            val = row[ticker]
-            if pd.notna(val):
-                rows.append({
-                    "ticker": ticker,
-                    "ts": ts.to_pydatetime(),
-                    "close": float(val),
-                })
-
-    if rows:
-        upsert_sql = text("""
-            INSERT INTO prices (ticker, ts, close)
-            VALUES (:ticker, :ts, :close)
-            ON CONFLICT (ticker, ts) DO UPDATE SET close = EXCLUDED.close
-        """)
-        await db.execute(upsert_sql, rows)
-        await db.commit()
-
-    # ── Cache latest prices in Redis ──────────────────────────
-    for ticker in close.columns:
-        latest_price = float(close[ticker].iloc[-1])
-        await cache_price(ticker, latest_price)
-        await publish_price_update(ticker, latest_price)
-
-    log.info(f"Stored and cached {len(rows)} price rows")
-    return close
+_PRICE_TTL = 60  # seconds
 
 
-async def load_price_history(
-    tickers: list[str],
-    db: AsyncSession,
-    days: int = 252,
-) -> pd.DataFrame:
-    """
-    Load price history from TimescaleDB.
-    Falls back to yfinance fetch if data is stale.
-    """
-    all_tickers = list(set(tickers + [settings.BENCHMARK_TICKER]))
-    since = datetime.now(timezone.utc) - timedelta(days=days + 30)
+async def _redis_get(key: str) -> Optional[str]:
+    if _redis_client is None:
+        return None
+    try:
+        return await _redis_client.get(key)
+    except Exception:
+        return None
 
-    rows = await db.execute(
-        text("""
-            SELECT ticker, ts, close FROM prices
-            WHERE ticker = ANY(:tickers) AND ts >= :since
-            ORDER BY ts ASC
-        """),
-        {"tickers": all_tickers, "since": since},
-    )
-    data = rows.fetchall()
 
-    if not data:
-        # No data in DB — fetch from Yahoo Finance
-        return await fetch_and_store_prices(all_tickers, db, period="1y")
+async def _redis_set(key: str, value: str, ttl: int = _PRICE_TTL) -> None:
+    if _redis_client is None:
+        return
+    try:
+        await _redis_client.set(key, value, ex=ttl)
+    except Exception:
+        pass
 
-    df = pd.DataFrame(data, columns=["ticker", "ts", "close"])
-    pivot = df.pivot(index="ts", columns="ticker", values="close")
-    pivot.index = pd.to_datetime(pivot.index, utc=True)
 
-    # If last update is older than 6 hours, refresh
-    last_update = pivot.index[-1]
-    now = datetime.now(timezone.utc)
-    if (now - last_update.to_pydatetime()).total_seconds() > 6 * 3600:
-        log.info("Price data stale — refreshing from Yahoo Finance")
+# ─────────────────────────────────────────────────────────────────────────────
+# Current price (with Redis cache)
+# ─────────────────────────────────────────────────────────────────────────────
+async def get_current_price(symbol: str) -> Optional[float]:
+    """Return the latest price for symbol. Caches in Redis for 60 s."""
+    cache_key = f"price:{symbol}"
+    cached = await _redis_get(cache_key)
+    if cached is not None:
         try:
-            return await fetch_and_store_prices(all_tickers, db, period="1y")
-        except Exception as e:
-            log.warning(f"Refresh failed, using cached data: {e}")
+            return float(cached)
+        except ValueError:
+            pass
 
-    return pivot
+    # Fetch from yfinance in executor to avoid blocking the event loop
+    loop = asyncio.get_event_loop()
+    price = await loop.run_in_executor(None, _fetch_price_sync, symbol)
+
+    if price is not None:
+        await _redis_set(cache_key, str(price))
+
+    return price
+
+
+def _fetch_price_sync(symbol: str) -> Optional[float]:
+    """Synchronous yfinance call, run in a thread pool."""
+    try:
+        ticker = yf.Ticker(symbol)
+        price = ticker.fast_info.last_price
+        if price and price > 0:
+            return float(price)
+        # Fallback: use history
+        hist = ticker.history(period="1d")
+        if not hist.empty:
+            return float(hist["Close"].iloc[-1])
+    except Exception as exc:
+        logger.warning("get_current_price(%s) failed: %s", symbol, exc)
+    return None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Price history
+# ─────────────────────────────────────────────────────────────────────────────
+async def get_price_history(symbols: List[str], days: int) -> Optional[pd.DataFrame]:
+    """Download close-price history for a list of symbols.
+
+    Returns a DataFrame with symbols as columns and dates as index.
+    Handles US stocks, Indian stocks (.NS/.BO), crypto (BTC-USD), ETFs, forex.
+    """
+    if not symbols:
+        return None
+
+    loop = asyncio.get_event_loop()
+    df = await loop.run_in_executor(None, _fetch_history_sync, symbols, days)
+    return df
+
+
+def _fetch_history_sync(symbols: List[str], days: int) -> Optional[pd.DataFrame]:
+    """Synchronous yfinance download, run in a thread pool."""
+    try:
+        period = f"{days}d"
+        raw = yf.download(
+            tickers=symbols,
+            period=period,
+            auto_adjust=True,
+            progress=False,
+            threads=True,
+        )
+
+        if raw is None or raw.empty:
+            return None
+
+        # yf.download returns multi-level columns when >1 symbol
+        if isinstance(raw.columns, pd.MultiIndex):
+            close = raw["Close"]
+        else:
+            # Single symbol – columns are simple
+            close = raw[["Close"]].rename(columns={"Close": symbols[0]})
+
+        # Drop columns that are entirely NaN
+        close = close.dropna(axis=1, how="all")
+        # Forward-fill small gaps then drop remaining NaNs
+        close = close.ffill().dropna()
+
+        return close
+    except Exception as exc:
+        logger.error("get_price_history failed: %s", exc)
+        return None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Benchmark history
+# ─────────────────────────────────────────────────────────────────────────────
+async def get_benchmark_history(benchmark: str, days: int) -> Optional[pd.Series]:
+    """Download close-price history for a benchmark ticker (e.g., SPY, ^NSEI)."""
+    loop = asyncio.get_event_loop()
+    series = await loop.run_in_executor(None, _fetch_benchmark_sync, benchmark, days)
+    return series
+
+
+def _fetch_benchmark_sync(benchmark: str, days: int) -> Optional[pd.Series]:
+    """Synchronous benchmark fetch."""
+    try:
+        period = f"{days}d"
+        raw = yf.download(
+            tickers=benchmark,
+            period=period,
+            auto_adjust=True,
+            progress=False,
+        )
+        if raw is None or raw.empty:
+            return None
+        if isinstance(raw.columns, pd.MultiIndex):
+            close = raw["Close"].squeeze()
+        else:
+            close = raw["Close"]
+        close = close.ffill().dropna()
+        return close
+    except Exception as exc:
+        logger.warning("get_benchmark_history(%s) failed: %s", benchmark, exc)
+        return None

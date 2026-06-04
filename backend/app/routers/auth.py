@@ -1,53 +1,67 @@
+from __future__ import annotations
+
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth import hash_password, verify_password, create_access_token
+from app.auth import create_access_token, verify_google_token
 from app.database import get_db
 from app.models import User
-from app.schemas import RegisterRequest, LoginRequest, TokenResponse
+from app.schemas import GoogleAuthRequest, TokenResponse
 
-router = APIRouter(prefix="/auth", tags=["Authentication"])
+logger = logging.getLogger(__name__)
+
+router = APIRouter(prefix="/auth", tags=["Auth"])
 
 
-@router.post("/register", response_model=TokenResponse, status_code=201)
-async def register(payload: RegisterRequest, db: AsyncSession = Depends(get_db)):
-    # Check if email already registered
-    existing = await db.execute(select(User).where(User.email == payload.email))
-    if existing.scalar_one_or_none():
-        raise HTTPException(status_code=400, detail="Email already registered")
+@router.post("/google", response_model=TokenResponse)
+async def google_login(
+    body: GoogleAuthRequest,
+    db: AsyncSession = Depends(get_db),
+) -> TokenResponse:
+    """Verify a Google ID token and return a JWT + user info.
 
-    user = User(
-        email=payload.email,
-        hashed_pw=hash_password(payload.password),
-        full_name=payload.full_name,
-    )
-    db.add(user)
+    Creates the user record on first login; updates name/avatar on subsequent logins.
+    """
+    google_info = verify_google_token(body.id_token)
+
+    google_id: str = google_info["sub"]
+    email: str = google_info["email"]
+    full_name: str = google_info.get("name", "")
+    avatar_url: str = google_info.get("picture", "")
+
+    # ── Look up existing user by google_id ────────────────────────────────────
+    result = await db.execute(select(User).where(User.google_id == google_id))
+    user: User | None = result.scalar_one_or_none()
+
+    if user is None:
+        # First login – create user
+        user = User(
+            google_id=google_id,
+            email=email,
+            full_name=full_name or None,
+            avatar_url=avatar_url or None,
+        )
+        db.add(user)
+        await db.flush()
+        logger.info("New user created: %s", email)
+    else:
+        # Subsequent login – refresh mutable fields
+        user.full_name = full_name or user.full_name
+        user.avatar_url = avatar_url or user.avatar_url
+        logger.info("Existing user logged in: %s", email)
+
     await db.commit()
     await db.refresh(user)
 
-    token = create_access_token(user.id, user.email)
+    access_token = create_access_token(user.id, user.email)
+
     return TokenResponse(
-        access_token=token,
+        access_token=access_token,
         user_id=str(user.id),
         email=user.email,
-    )
-
-
-@router.post("/login", response_model=TokenResponse)
-async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(User).where(User.email == payload.email))
-    user = result.scalar_one_or_none()
-
-    if not user or not verify_password(payload.password, user.hashed_pw):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid email or password",
-        )
-
-    token = create_access_token(user.id, user.email)
-    return TokenResponse(
-        access_token=token,
-        user_id=str(user.id),
-        email=user.email,
+        full_name=user.full_name,
+        avatar_url=user.avatar_url,
     )

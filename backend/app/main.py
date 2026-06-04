@@ -1,38 +1,49 @@
+from __future__ import annotations
+
 import logging
+import contextlib
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
-from app.database import engine, Base
-from app.routers import auth, portfolios, websocket
+from app.database import Base, engine
+from app.routers import auth, export, news, portfolios, risk, websocket
 
-logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(name)s | %(message)s")
-log = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 settings = get_settings()
 
+# ── Logging ───────────────────────────────────────────────────────────────────
+logging.basicConfig(
+    level=logging.DEBUG if settings.DEBUG else logging.INFO,
+    format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
 
+
+# ── Lifespan ──────────────────────────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Create tables on startup (SQLAlchemy handles this; TimescaleDB hypertables via init.sql)
+    """Create all DB tables on startup."""
+    logger.info("Starting up %s v%s …", settings.APP_NAME, settings.APP_VERSION)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-    log.info("Database tables verified.")
+    logger.info("Database tables ready.")
     yield
+    logger.info("Shutting down …")
     await engine.dispose()
-    log.info("Database connections closed.")
 
 
+# ── App factory ───────────────────────────────────────────────────────────────
 app = FastAPI(
     title=settings.APP_NAME,
     version=settings.APP_VERSION,
+    description="Portfolio Risk Monitor Pro – real-time risk analytics for multi-asset portfolios.",
     lifespan=lifespan,
-    docs_url="/docs",
-    redoc_url="/redoc",
 )
 
-# ── CORS ──────────────────────────────────────────────────────
+# ── CORS ──────────────────────────────────────────────────────────────────────
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -41,17 +52,20 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ── Routers ───────────────────────────────────────────────────
+# ── Routers ───────────────────────────────────────────────────────────────────
 app.include_router(auth.router)
 app.include_router(portfolios.router)
+app.include_router(risk.router)
+app.include_router(news.router)
+app.include_router(export.router)
 app.include_router(websocket.router)
 
 
-@app.get("/health")
-async def health():
+# ── Health ────────────────────────────────────────────────────────────────────
+@app.get("/health", tags=["Health"])
+async def health() -> dict:
     return {
         "status": "ok",
         "app": settings.APP_NAME,
         "version": settings.APP_VERSION,
-        "ws_connections": websocket.manager.total_connections,
     }

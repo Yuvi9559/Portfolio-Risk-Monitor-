@@ -1,27 +1,17 @@
 from __future__ import annotations
-from uuid import UUID
+
+import uuid
 from datetime import datetime
-from typing import Optional
-from pydantic import BaseModel, EmailStr, field_validator
+from typing import Any, Dict, List, Optional
+
+from pydantic import BaseModel, Field, field_validator
 
 
-# ── Auth ──────────────────────────────────────────────────────
-class RegisterRequest(BaseModel):
-    email: EmailStr
-    password: str
-    full_name: Optional[str] = None
-
-    @field_validator("password")
-    @classmethod
-    def password_strength(cls, v: str) -> str:
-        if len(v) < 8:
-            raise ValueError("Password must be at least 8 characters")
-        return v
-
-
-class LoginRequest(BaseModel):
-    email: EmailStr
-    password: str
+# ─────────────────────────────────────────────────────────────────────────────
+# Auth
+# ─────────────────────────────────────────────────────────────────────────────
+class GoogleAuthRequest(BaseModel):
+    id_token: str
 
 
 class TokenResponse(BaseModel):
@@ -29,74 +19,125 @@ class TokenResponse(BaseModel):
     token_type: str = "bearer"
     user_id: str
     email: str
+    full_name: Optional[str] = None
+    avatar_url: Optional[str] = None
 
 
-# ── Portfolio ─────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+# Portfolio
+# ─────────────────────────────────────────────────────────────────────────────
 class PortfolioCreate(BaseModel):
-    name: str = "My Portfolio"
+    name: str = Field(..., min_length=1, max_length=120)
     benchmark: str = "SPY"
+    currency: str = "USD"
 
 
 class PortfolioResponse(BaseModel):
-    id: UUID
-    name: str
-    benchmark: str
-    created_at: datetime
-
     model_config = {"from_attributes": True}
 
+    id: uuid.UUID
+    name: str
+    benchmark: str
+    currency: str
+    created_at: datetime
 
-# ── Holdings ──────────────────────────────────────────────────
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Holding
+# ─────────────────────────────────────────────────────────────────────────────
 class HoldingAdd(BaseModel):
-    ticker: str
+    symbol: str
+    asset_type: str = "stock"
     shares: float
     avg_cost: Optional[float] = None
 
-    @field_validator("ticker")
+    @field_validator("symbol", mode="before")
     @classmethod
-    def uppercase_ticker(cls, v: str) -> str:
+    def uppercase_symbol(cls, v: str) -> str:
         return v.strip().upper()
 
-    @field_validator("shares")
+    @field_validator("shares", mode="before")
     @classmethod
     def positive_shares(cls, v: float) -> float:
         if v <= 0:
-            raise ValueError("Shares must be positive")
+            raise ValueError("shares must be a positive number")
         return v
 
 
 class HoldingResponse(BaseModel):
-    id: UUID
-    ticker: str
+    model_config = {"from_attributes": True}
+
+    id: uuid.UUID
+    symbol: str
+    asset_type: str
     shares: float
-    avg_cost: Optional[float]
+    avg_cost: Optional[float] = None
     current_price: Optional[float] = None
     market_value: Optional[float] = None
     pnl_pct: Optional[float] = None
+    pnl_dollar: Optional[float] = None
 
-    model_config = {"from_attributes": True}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Monte Carlo
+# ─────────────────────────────────────────────────────────────────────────────
+class MonteCarloResult(BaseModel):
+    percentile_5: List[float]
+    percentile_50: List[float]
+    percentile_95: List[float]
+    days: List[int]
+    current_value: float
 
 
-# ── Risk Metrics ──────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+# Risk Metrics
+# ─────────────────────────────────────────────────────────────────────────────
 class RiskMetrics(BaseModel):
     portfolio_id: str
-    computed_at: datetime
     portfolio_value: float
     daily_return_pct: float
-
-    # Risk metrics
-    var_95: float           # Value at Risk 95% (as % of portfolio)
-    cvar_95: float          # Conditional VaR 95%
-    var_99: float           # Value at Risk 99%
-    var_95_dollar: float    # VaR in dollar terms
+    var_95: float
+    cvar_95: float
+    var_99: float
+    var_95_dollar: float
     sharpe: float
     sortino: float
     beta: float
-    max_drawdown: float     # as negative percentage
+    max_drawdown: float
+    volatility: float
+    correlation: Dict[str, Any]
+    weights: Dict[str, float]
+    monte_carlo: Dict[str, Any]
+    holdings: List[HoldingResponse]
 
-    # Holdings breakdown
-    holdings: list[HoldingResponse]
 
-    # Correlation matrix
-    correlation: dict       # {ticker: {ticker: corr_value}}
-    weights: dict           # {ticker: weight}
+# ─────────────────────────────────────────────────────────────────────────────
+# News
+# ─────────────────────────────────────────────────────────────────────────────
+class NewsItem(BaseModel):
+    symbol: str
+    headline: str
+    url: Optional[str] = None
+    sentiment_score: float
+    sentiment_label: str
+    published_at: Optional[datetime] = None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Risk history snapshot (returned from /history endpoint)
+# ─────────────────────────────────────────────────────────────────────────────
+class RiskSnapshotResponse(BaseModel):
+    model_config = {"from_attributes": True}
+
+    ts: datetime
+    portfolio_value: Optional[float] = None
+    daily_return: Optional[float] = None
+    var_95: Optional[float] = None
+    cvar_95: Optional[float] = None
+    var_99: Optional[float] = None
+    var_95_dollar: Optional[float] = None
+    sharpe: Optional[float] = None
+    sortino: Optional[float] = None
+    beta: Optional[float] = None
+    max_drawdown: Optional[float] = None
+    volatility: Optional[float] = None

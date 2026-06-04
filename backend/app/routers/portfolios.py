@@ -1,258 +1,226 @@
-from datetime import datetime, timezone
-from uuid import UUID
+from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select, delete
+import logging
+import uuid
+from typing import List
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import delete, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from app.auth import get_current_user
 from app.database import get_db
-from app.models import Portfolio, Holding, RiskSnapshot, User
-from app.schemas import (
-    PortfolioCreate, PortfolioResponse,
-    HoldingAdd, HoldingResponse, RiskMetrics
-)
-from app.services.price_service import load_price_history, get_cached_price
-from app.services.risk_engine import compute_portfolio_risk
+from app.models import Holding, Portfolio, User
+from app.schemas import HoldingAdd, HoldingResponse, PortfolioCreate, PortfolioResponse
+from app.services import price_service
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/portfolios", tags=["Portfolios"])
 
 
-# ── Portfolio CRUD ────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+# Internal helpers
+# ─────────────────────────────────────────────────────────────────────────────
+async def _assert_owner(
+    portfolio_id: uuid.UUID,
+    user_id: uuid.UUID,
+    db: AsyncSession,
+) -> Portfolio:
+    """Return the Portfolio if it belongs to user_id, else raise 404/403."""
+    result = await db.execute(
+        select(Portfolio).where(Portfolio.id == portfolio_id)
+    )
+    portfolio: Portfolio | None = result.scalar_one_or_none()
+    if portfolio is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Portfolio not found")
+    if portfolio.user_id != user_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not your portfolio")
+    return portfolio
 
-@router.get("", response_model=list[PortfolioResponse])
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Portfolio CRUD
+# ─────────────────────────────────────────────────────────────────────────────
+@router.get("", response_model=List[PortfolioResponse])
 async def list_portfolios(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-):
+) -> List[PortfolioResponse]:
     result = await db.execute(
         select(Portfolio).where(Portfolio.user_id == current_user.id)
     )
-    return result.scalars().all()
+    portfolios = result.scalars().all()
+    return [PortfolioResponse.model_validate(p) for p in portfolios]
 
 
-@router.post("", response_model=PortfolioResponse, status_code=201)
+@router.post("", response_model=PortfolioResponse, status_code=status.HTTP_201_CREATED)
 async def create_portfolio(
-    payload: PortfolioCreate,
+    body: PortfolioCreate,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-):
+) -> PortfolioResponse:
     portfolio = Portfolio(
         user_id=current_user.id,
-        name=payload.name,
-        benchmark=payload.benchmark,
+        name=body.name,
+        benchmark=body.benchmark,
+        currency=body.currency,
     )
     db.add(portfolio)
     await db.commit()
     await db.refresh(portfolio)
-    return portfolio
+    logger.info("Portfolio '%s' created for user %s", portfolio.name, current_user.email)
+    return PortfolioResponse.model_validate(portfolio)
 
 
-@router.delete("/{portfolio_id}", status_code=204)
+@router.delete("/{portfolio_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_portfolio(
-    portfolio_id: UUID,
+    portfolio_id: uuid.UUID,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-):
-    result = await db.execute(
-        select(Portfolio).where(
-            Portfolio.id == portfolio_id,
-            Portfolio.user_id == current_user.id,
-        )
-    )
-    p = result.scalar_one_or_none()
-    if not p:
-        raise HTTPException(status_code=404, detail="Portfolio not found")
-    await db.delete(p)
+) -> None:
+    portfolio = await _assert_owner(portfolio_id, current_user.id, db)
+    await db.delete(portfolio)
     await db.commit()
+    logger.info("Portfolio %s deleted by user %s", portfolio_id, current_user.email)
 
 
-# ── Holdings ──────────────────────────────────────────────────
-
-@router.get("/{portfolio_id}/holdings", response_model=list[HoldingResponse])
+# ─────────────────────────────────────────────────────────────────────────────
+# Holdings
+# ─────────────────────────────────────────────────────────────────────────────
+@router.get("/{portfolio_id}/holdings", response_model=List[HoldingResponse])
 async def list_holdings(
-    portfolio_id: UUID,
+    portfolio_id: uuid.UUID,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-):
+) -> List[HoldingResponse]:
     await _assert_owner(portfolio_id, current_user.id, db)
+
     result = await db.execute(
         select(Holding).where(Holding.portfolio_id == portfolio_id)
     )
     holdings = result.scalars().all()
 
-    out = []
+    response: List[HoldingResponse] = []
     for h in holdings:
-        price = await get_cached_price(h.ticker)
-        market_value = float(h.shares) * price if price else None
-        pnl = ((price - float(h.avg_cost)) / float(h.avg_cost) * 100) if price and h.avg_cost else None
-        out.append(HoldingResponse(
-            id=h.id,
-            ticker=h.ticker,
-            shares=float(h.shares),
-            avg_cost=float(h.avg_cost) if h.avg_cost else None,
-            current_price=price,
-            market_value=market_value,
-            pnl_pct=round(pnl, 2) if pnl else None,
-        ))
-    return out
+        current_price = await price_service.get_current_price(h.symbol)
+        shares = float(h.shares) if h.shares is not None else 0.0
+        avg_cost = float(h.avg_cost) if h.avg_cost is not None else None
+
+        market_value: float | None = None
+        pnl_pct: float | None = None
+        pnl_dollar: float | None = None
+
+        if current_price is not None:
+            market_value = current_price * shares
+            if avg_cost and avg_cost > 0:
+                pnl_dollar = (current_price - avg_cost) * shares
+                pnl_pct = ((current_price - avg_cost) / avg_cost) * 100
+
+        response.append(
+            HoldingResponse(
+                id=h.id,
+                symbol=h.symbol,
+                asset_type=h.asset_type,
+                shares=shares,
+                avg_cost=avg_cost,
+                current_price=current_price,
+                market_value=market_value,
+                pnl_pct=pnl_pct,
+                pnl_dollar=pnl_dollar,
+            )
+        )
+    return response
 
 
-@router.post("/{portfolio_id}/holdings", response_model=HoldingResponse, status_code=201)
-async def add_holding(
-    portfolio_id: UUID,
-    payload: HoldingAdd,
+@router.post(
+    "/{portfolio_id}/holdings",
+    response_model=HoldingResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def add_or_update_holding(
+    portfolio_id: uuid.UUID,
+    body: HoldingAdd,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-):
+) -> HoldingResponse:
     await _assert_owner(portfolio_id, current_user.id, db)
 
-    existing = await db.execute(
+    # Upsert: if symbol already exists update shares & avg_cost
+    result = await db.execute(
         select(Holding).where(
             Holding.portfolio_id == portfolio_id,
-            Holding.ticker == payload.ticker,
+            Holding.symbol == body.symbol,
         )
     )
-    h = existing.scalar_one_or_none()
-    if h:
-        h.shares = payload.shares
-        h.avg_cost = payload.avg_cost
-    else:
-        h = Holding(
+    holding: Holding | None = result.scalar_one_or_none()
+
+    if holding is None:
+        holding = Holding(
             portfolio_id=portfolio_id,
-            ticker=payload.ticker,
-            shares=payload.shares,
-            avg_cost=payload.avg_cost,
+            symbol=body.symbol,
+            asset_type=body.asset_type,
+            shares=body.shares,
+            avg_cost=body.avg_cost,
         )
-        db.add(h)
+        db.add(holding)
+    else:
+        holding.shares = body.shares
+        holding.avg_cost = body.avg_cost if body.avg_cost is not None else holding.avg_cost
+        holding.asset_type = body.asset_type
 
     await db.commit()
-    await db.refresh(h)
-    return HoldingResponse(id=h.id, ticker=h.ticker, shares=float(h.shares), avg_cost=float(h.avg_cost) if h.avg_cost else None)
+    await db.refresh(holding)
+
+    current_price = await price_service.get_current_price(holding.symbol)
+    shares = float(holding.shares)
+    avg_cost = float(holding.avg_cost) if holding.avg_cost else None
+    market_value = current_price * shares if current_price else None
+    pnl_dollar = (
+        (current_price - avg_cost) * shares if current_price and avg_cost else None
+    )
+    pnl_pct = (
+        ((current_price - avg_cost) / avg_cost * 100)
+        if current_price and avg_cost and avg_cost > 0
+        else None
+    )
+
+    return HoldingResponse(
+        id=holding.id,
+        symbol=holding.symbol,
+        asset_type=holding.asset_type,
+        shares=shares,
+        avg_cost=avg_cost,
+        current_price=current_price,
+        market_value=market_value,
+        pnl_pct=pnl_pct,
+        pnl_dollar=pnl_dollar,
+    )
 
 
-@router.delete("/{portfolio_id}/holdings/{ticker}", status_code=204)
+@router.delete(
+    "/{portfolio_id}/holdings/{symbol}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
 async def remove_holding(
-    portfolio_id: UUID,
-    ticker: str,
+    portfolio_id: uuid.UUID,
+    symbol: str,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-):
+) -> None:
     await _assert_owner(portfolio_id, current_user.id, db)
-    await db.execute(
-        delete(Holding).where(
+
+    result = await db.execute(
+        select(Holding).where(
             Holding.portfolio_id == portfolio_id,
-            Holding.ticker == ticker.upper(),
+            Holding.symbol == symbol.upper(),
         )
     )
+    holding: Holding | None = result.scalar_one_or_none()
+    if holding is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Holding not found")
+
+    await db.delete(holding)
     await db.commit()
-
-
-# ── Risk Snapshot (REST fallback) ─────────────────────────────
-
-@router.get("/{portfolio_id}/risk", response_model=RiskMetrics)
-async def get_risk(
-    portfolio_id: UUID,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    portfolio = await _assert_owner(portfolio_id, current_user.id, db)
-    return await _compute_risk_payload(portfolio, db)
-
-
-# ── Risk History ──────────────────────────────────────────────
-
-@router.get("/{portfolio_id}/risk/history")
-async def risk_history(
-    portfolio_id: UUID,
-    days: int = 30,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    await _assert_owner(portfolio_id, current_user.id, db)
-    from sqlalchemy import text
-    rows = await db.execute(
-        text("""
-            SELECT ts, portfolio_value, var_95, sharpe, sortino, beta, max_drawdown
-            FROM risk_snapshots
-            WHERE portfolio_id = :pid
-            ORDER BY ts DESC
-            LIMIT :lim
-        """),
-        {"pid": str(portfolio_id), "lim": days},
-    )
-    return [dict(r._mapping) for r in rows.fetchall()]
-
-
-# ── Helpers ───────────────────────────────────────────────────
-
-async def _assert_owner(portfolio_id: UUID, user_id, db: AsyncSession) -> Portfolio:
-    result = await db.execute(
-        select(Portfolio).where(
-            Portfolio.id == portfolio_id,
-            Portfolio.user_id == user_id,
-        )
-    )
-    p = result.scalar_one_or_none()
-    if not p:
-        raise HTTPException(status_code=404, detail="Portfolio not found")
-    return p
-
-
-async def _compute_risk_payload(portfolio: Portfolio, db: AsyncSession) -> RiskMetrics:
-    result = await db.execute(
-        select(Holding).where(Holding.portfolio_id == portfolio.id)
-    )
-    holdings = result.scalars().all()
-    if not holdings:
-        raise HTTPException(status_code=400, detail="Portfolio has no holdings")
-
-    tickers = [h.ticker for h in holdings]
-    prices_df = await load_price_history(tickers, db)
-
-    holdings_dict = {h.ticker: float(h.shares) for h in holdings}
-    risk = compute_portfolio_risk(prices_df, holdings_dict, benchmark=portfolio.benchmark)
-
-    # Persist snapshot
-    snap = RiskSnapshot(
-        portfolio_id=portfolio.id,
-        ts=datetime.now(timezone.utc),
-        portfolio_value=risk.portfolio_value,
-        daily_return=risk.daily_return_pct / 100,
-        var_95=risk.var_95,
-        cvar_95=risk.cvar_95,
-        var_99=risk.var_99,
-        sharpe=risk.sharpe,
-        sortino=risk.sortino,
-        beta=risk.beta,
-        max_drawdown=risk.max_drawdown,
-    )
-    db.add(snap)
-    await db.commit()
-
-    # Build holdings response
-    holding_responses = []
-    for h in holdings:
-        price = await get_cached_price(h.ticker) or float(prices_df[h.ticker].iloc[-1]) if h.ticker in prices_df else None
-        mv = float(h.shares) * price if price else None
-        pnl = ((price - float(h.avg_cost)) / float(h.avg_cost) * 100) if price and h.avg_cost else None
-        holding_responses.append(HoldingResponse(
-            id=h.id, ticker=h.ticker, shares=float(h.shares),
-            avg_cost=float(h.avg_cost) if h.avg_cost else None,
-            current_price=price, market_value=mv, pnl_pct=round(pnl, 2) if pnl else None,
-        ))
-
-    return RiskMetrics(
-        portfolio_id=str(portfolio.id),
-        computed_at=datetime.now(timezone.utc),
-        portfolio_value=risk.portfolio_value,
-        daily_return_pct=risk.daily_return_pct,
-        var_95=risk.var_95, cvar_95=risk.cvar_95, var_99=risk.var_99,
-        var_95_dollar=risk.var_95_dollar,
-        sharpe=risk.sharpe, sortino=risk.sortino,
-        beta=risk.beta, max_drawdown=risk.max_drawdown,
-        holdings=holding_responses,
-        correlation=risk.correlation,
-        weights=risk.weights,
-    )
+    logger.info("Holding %s removed from portfolio %s", symbol, portfolio_id)

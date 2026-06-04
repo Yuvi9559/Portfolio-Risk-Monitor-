@@ -1,32 +1,53 @@
-import { useState, useEffect } from "react";
-import Auth from "./components/Auth";
-import Dashboard from "./components/Dashboard";
-import "./App.css";
+import React, { useState, useEffect } from 'react';
+import { GoogleOAuthProvider } from '@react-oauth/google';
+import './App.css';
+import Auth from './components/Auth';
+import Dashboard from './components/Dashboard';
+
+const GOOGLE_CLIENT_ID =
+  import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
+
+const STORAGE_KEY = 'prm_session';
 
 export default function App() {
-  const [token, setToken] = useState(localStorage.getItem("prm_token"));
-  const [user, setUser]   = useState(JSON.parse(localStorage.getItem("prm_user") || "null"));
+  const [session, setSession] = useState(() => {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  });
 
-  const handleLogin = (tokenData) => {
-    localStorage.setItem("prm_token", tokenData.access_token);
-    localStorage.setItem("prm_user", JSON.stringify({ id: tokenData.user_id, email: tokenData.email }));
-    setToken(tokenData.access_token);
-    setUser({ id: tokenData.user_id, email: tokenData.email });
+  // Keep localStorage in sync
+  useEffect(() => {
+    if (session) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(session));
+    } else {
+      localStorage.removeItem(STORAGE_KEY);
+    }
+  }, [session]);
+
+  const handleLogin = (data) => {
+    // data: { access_token, user: { email, name, picture } }
+    setSession(data);
   };
 
   const handleLogout = () => {
-    localStorage.removeItem("prm_token");
-    localStorage.removeItem("prm_user");
-    setToken(null);
-    setUser(null);
+    setSession(null);
   };
 
   return (
-    <div className="app">
-      {token
-        ? <Dashboard token={token} user={user} onLogout={handleLogout} />
-        : <Auth onLogin={handleLogin} />
-      }
-    </div>
+    <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
+      {session ? (
+        <Dashboard
+          token={session.access_token}
+          user={session.user}
+          onLogout={handleLogout}
+        />
+      ) : (
+        <Auth onLogin={handleLogin} />
+      )}
+    </GoogleOAuthProvider>
   );
 }
