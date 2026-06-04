@@ -27,9 +27,12 @@ logging.basicConfig(
 async def lifespan(app: FastAPI):
     """Create all DB tables on startup."""
     logger.info("Starting up %s v%s …", settings.APP_NAME, settings.APP_VERSION)
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    logger.info("Database tables ready.")
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        logger.info("Database tables ready.")
+    except Exception as exc:
+        logger.critical("Database initialization failed: %s", exc)
     yield
     logger.info("Shutting down …")
     await engine.dispose()
