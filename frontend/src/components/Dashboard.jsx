@@ -107,15 +107,18 @@ export default function Dashboard({ token, user, onLogout }) {
     try {
       const data = await api.getPortfolios(token);
       setPortfolios(data);
-      if (data.length > 0 && !activePortId) {
-        setActivePortId(data[0].id);
-      }
+      setActivePortId(prev => {
+        if (data.length > 0 && !prev) {
+          return data[0].id;
+        }
+        return prev;
+      });
     } catch (err) {
       console.error('Failed to load portfolios:', err);
     } finally {
       setLoading(false);
     }
-  }, [token, activePortId]);
+  }, [token]);
 
   useEffect(() => { loadPortfolios(); }, [loadPortfolios]);
 

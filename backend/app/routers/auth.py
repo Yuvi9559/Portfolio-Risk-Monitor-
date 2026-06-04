@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -25,7 +26,7 @@ async def google_login(
 
     Creates the user record on first login; updates name/avatar on subsequent logins.
     """
-    google_info = verify_google_token(body.id_token)
+    google_info = await asyncio.to_thread(verify_google_token, body.id_token)
 
     google_id: str = google_info["sub"]
     email: str = google_info["email"]

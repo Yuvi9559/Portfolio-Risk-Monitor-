@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
@@ -200,7 +201,7 @@ async def send_portfolio_report(
             "subject": f"📊 Risk Report: {portfolio_name}",
             "html": html_body,
         }
-        response = resend.Emails.send(params)
+        response = await asyncio.to_thread(resend.Emails.send, params)
         logger.info("Email sent to %s | id=%s", user_email, response.get("id"))
         return True
     except Exception as exc:
