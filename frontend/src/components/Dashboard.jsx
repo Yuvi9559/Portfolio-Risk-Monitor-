@@ -60,7 +60,7 @@ function CreatePortfolioModal({ onConfirm, onCancel }) {
               <select className="form-select" value={benchmark} onChange={(e) => setBenchmark(e.target.value)}>
                 <option value="SPY">SPY (S&amp;P 500)</option>
                 <option value="QQQ">QQQ (Nasdaq)</option>
-                <option value="NIFTY50.NS">NIFTY 50</option>
+                <option value="^NSEI">NIFTY 50</option>
                 <option value="^DJI">Dow Jones</option>
                 <option value="GLD">Gold (GLD)</option>
               </select>
