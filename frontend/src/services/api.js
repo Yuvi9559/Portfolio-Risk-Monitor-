@@ -123,7 +123,7 @@ const api = {
 
 /** WebSocket factory for live price updates */
 export function createPriceSocket(portfolioId, token, onMessage, onError) {
-  const url = `${WS_BASE}/ws/prices/${portfolioId}?token=${encodeURIComponent(token)}`;
+  const url = `${WS_BASE}/ws/${portfolioId}?token=${encodeURIComponent(token)}`;
   const ws = new WebSocket(url);
 
   ws.onopen = () => console.log('[WS] connected');

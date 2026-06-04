@@ -395,8 +395,8 @@ export default function Dashboard({ token, user, onLogout }) {
                     onHoldingRemoved={handleHoldingsChange}
                     currency={activePortfolio?.currency}
                   />
-                  {riskData?.correlation_matrix && (
-                    <CorrelationHeatmap matrix={riskData.correlation_matrix} />
+                  {riskData?.correlation && Object.keys(riskData.correlation).length > 1 && (
+                    <CorrelationHeatmap matrix={riskData.correlation} />
                   )}
                 </>
               )}

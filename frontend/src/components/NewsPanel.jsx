@@ -29,10 +29,10 @@ function SentimentBadge({ score }) {
 function OverallSentiment({ newsItems }) {
   if (!newsItems || newsItems.length === 0) return null;
 
-  const scored = newsItems.filter((n) => n.vader_score != null);
+  const scored = newsItems.filter((n) => n.sentiment_score != null);
   if (scored.length === 0) return null;
 
-  const avg = scored.reduce((sum, n) => sum + (n.vader_score ?? 0), 0) / scored.length;
+  const avg = scored.reduce((sum, n) => sum + (n.sentiment_score ?? 0), 0) / scored.length;
   const pct = ((avg + 1) / 2 * 100).toFixed(0); // normalize -1..1 to 0..100
 
   const label = avg >= 0.15 ? 'Bullish' : avg >= 0.05 ? 'Slightly Bullish' : avg <= -0.15 ? 'Bearish' : avg <= -0.05 ? 'Slightly Bearish' : 'Neutral';
@@ -78,19 +78,19 @@ function OverallSentiment({ newsItems }) {
         <div style={{ display: 'flex', gap: 10 }}>
           <div style={{ textAlign: 'center' }}>
             <div style={{ fontSize: 18, fontFamily: 'var(--font-mono)', color: 'var(--accent)', fontWeight: 600 }}>
-              {newsItems.filter((n) => (n.vader_score ?? 0) >= 0.05).length}
+              {newsItems.filter((n) => (n.sentiment_score ?? 0) >= 0.05).length}
             </div>
             <div style={{ fontSize: 10, color: 'var(--text-faint)' }}>Positive</div>
           </div>
           <div style={{ textAlign: 'center' }}>
             <div style={{ fontSize: 18, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', fontWeight: 600 }}>
-              {newsItems.filter((n) => Math.abs(n.vader_score ?? 0) < 0.05).length}
+              {newsItems.filter((n) => Math.abs(n.sentiment_score ?? 0) < 0.05).length}
             </div>
             <div style={{ fontSize: 10, color: 'var(--text-faint)' }}>Neutral</div>
           </div>
           <div style={{ textAlign: 'center' }}>
             <div style={{ fontSize: 18, fontFamily: 'var(--font-mono)', color: 'var(--danger)', fontWeight: 600 }}>
-              {newsItems.filter((n) => (n.vader_score ?? 0) <= -0.05).length}
+              {newsItems.filter((n) => (n.sentiment_score ?? 0) <= -0.05).length}
             </div>
             <div style={{ fontSize: 10, color: 'var(--text-faint)' }}>Negative</div>
           </div>
@@ -136,13 +136,21 @@ export default function NewsPanel({ token, portfolioId }) {
 
   useEffect(() => { fetchNews(); }, [fetchNews]);
 
-  // Flatten all articles for overall sentiment
-  const allArticles = newsData
-    ? Object.values(newsData).flat()
-    : [];
+  // Backend returns a flat array of NewsItem objects — group by symbol client-side
+  const groupedMap = {};
+  if (Array.isArray(newsData)) {
+    for (const item of newsData) {
+      const sym = item.symbol || 'Unknown';
+      if (!groupedMap[sym]) groupedMap[sym] = [];
+      groupedMap[sym].push(item);
+    }
+  }
 
-  // Group by symbol
-  const groups = newsData ? Object.entries(newsData) : [];
+  // Flatten all articles for overall sentiment
+  const allArticles = Object.values(groupedMap).flat();
+
+  // Group entries for rendering
+  const groups = Object.entries(groupedMap);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
@@ -185,7 +193,7 @@ export default function NewsPanel({ token, portfolioId }) {
       {/* News groups by symbol */}
       {!loading && groups.map(([symbol, articles]) => {
         if (!articles || articles.length === 0) return null;
-        const symbolAvg = articles.reduce((s, a) => s + (a.vader_score ?? 0), 0) / articles.length;
+        const symbolAvg = articles.reduce((s, a) => s + (a.sentiment_score ?? 0), 0) / articles.length;
         const symbolSentColor = symbolAvg >= 0.05 ? 'var(--accent)' : symbolAvg <= -0.05 ? 'var(--danger)' : 'var(--text-muted)';
 
         return (
@@ -207,10 +215,10 @@ export default function NewsPanel({ token, portfolioId }) {
                   <div className="news-headline">
                     {article.url ? (
                       <a href={article.url} target="_blank" rel="noopener noreferrer">
-                        {article.title || 'Untitled'}
+                        {article.headline || 'Untitled'}
                       </a>
                     ) : (
-                      article.title || 'Untitled'
+                      article.headline || 'Untitled'
                     )}
                   </div>
                   <div className="news-meta">
@@ -222,10 +230,10 @@ export default function NewsPanel({ token, portfolioId }) {
                         🕐 {timeAgo(article.published_at || article.publishedAt)}
                       </span>
                     )}
-                    <SentimentBadge score={article.vader_score} />
-                    {article.vader_score != null && (
+                    <SentimentBadge score={article.sentiment_score} />
+                    {article.sentiment_score != null && (
                       <span className="vader-score">
-                        score: {article.vader_score >= 0 ? '+' : ''}{article.vader_score.toFixed(3)}
+                        score: {article.sentiment_score >= 0 ? '+' : ''}{article.sentiment_score.toFixed(3)}
                       </span>
                     )}
                   </div>

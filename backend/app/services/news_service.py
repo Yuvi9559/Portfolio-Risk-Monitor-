@@ -105,7 +105,7 @@ def _fetch_news_sync(symbol: str, max_items: int = 5) -> List[Dict[str, Any]]:
 
 async def get_news_for_symbol(symbol: str, max_items: int = 5) -> List[Dict[str, Any]]:
     """Async wrapper around the synchronous feed parsing."""
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     return await loop.run_in_executor(None, _fetch_news_sync, symbol, max_items)
 
 

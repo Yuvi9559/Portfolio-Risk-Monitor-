@@ -57,7 +57,7 @@ async def get_current_price(symbol: str) -> Optional[float]:
             pass
 
     # Fetch from yfinance in executor to avoid blocking the event loop
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     price = await loop.run_in_executor(None, _fetch_price_sync, symbol)
 
     if price is not None:
@@ -94,7 +94,7 @@ async def get_price_history(symbols: List[str], days: int) -> Optional[pd.DataFr
     if not symbols:
         return None
 
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     df = await loop.run_in_executor(None, _fetch_history_sync, symbols, days)
     return df
 
@@ -137,7 +137,7 @@ def _fetch_history_sync(symbols: List[str], days: int) -> Optional[pd.DataFrame]
 # ─────────────────────────────────────────────────────────────────────────────
 async def get_benchmark_history(benchmark: str, days: int) -> Optional[pd.Series]:
     """Download close-price history for a benchmark ticker (e.g., SPY, ^NSEI)."""
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     series = await loop.run_in_executor(None, _fetch_benchmark_sync, benchmark, days)
     return series
 

@@ -8,6 +8,9 @@ export default defineConfig({
     proxy: {
       "/auth":       "http://localhost:8000",
       "/portfolios": "http://localhost:8000",
+      "/risk":       "http://localhost:8000",
+      "/news":       "http://localhost:8000",
+      "/export":     "http://localhost:8000",
       "/ws":         { target: "ws://localhost:8000", ws: true },
     },
   },

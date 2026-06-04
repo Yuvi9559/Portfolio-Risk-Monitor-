@@ -78,23 +78,25 @@ export default function RiskMetricsPanel({ riskData, currency = 'USD' }) {
     );
   }
 
+  // ── Exact field names from backend RiskMetrics schema ──────────────────────
   const {
     portfolio_value,
-    daily_pnl,
-    daily_pnl_pct,
+    daily_return_pct,   // backend: daily_return_pct  (was wrongly read as daily_pnl_pct)
     var_95,
     var_99,
     cvar_95,
-    sharpe_ratio,
-    sortino_ratio,
+    sharpe,             // backend: sharpe             (was wrongly read as sharpe_ratio)
+    sortino,            // backend: sortino             (was wrongly read as sortino_ratio)
     max_drawdown,
     volatility,
     beta,
+    var_95_dollar,      // backend: var_95_dollar       (dollar VaR)
   } = riskData;
 
-  const dailyPnlColor = getDailyPnlClass(daily_pnl);
-  const pnlArrow = daily_pnl >= 0 ? '▲' : '▼';
-  const sharpeColor = getSharpeColor(sharpe_ratio);
+  // daily_return_pct comes as a percentage already (e.g. 0.12 means 0.12 %)
+  const dailyPnlColor = getDailyPnlClass(daily_return_pct);
+  const pnlArrow = (daily_return_pct ?? 0) >= 0 ? '▲' : '▼';
+  const sharpeColor = getSharpeColor(sharpe);
 
   return (
     <div>
@@ -108,36 +110,36 @@ export default function RiskMetricsPanel({ riskData, currency = 'USD' }) {
           tooltip="Sum of all holdings at current market price"
         />
         <MetricCard
-          label="Daily P&L"
-          formatted={`${pnlArrow} ${formatCurrency(daily_pnl, currency)} (${formatPct(daily_pnl_pct)})`}
-          description="Today's unrealised gain/loss"
+          label="Daily Return"
+          formatted={`${pnlArrow} ${daily_return_pct != null ? Math.abs(daily_return_pct).toFixed(4) : '—'}%`}
+          description="Portfolio mean daily return"
           colorClass={dailyPnlColor}
-          tooltip="Change in portfolio value since previous close"
+          tooltip="Average daily return of the portfolio based on historical prices"
         />
         <MetricCard
           label="VaR 95% (1-Day)"
-          formatted={formatCurrency(var_95, currency)}
+          formatted={`${var_95 != null ? var_95.toFixed(2) : '—'}%  /  ${formatCurrency(var_95_dollar, currency)}`}
           description="Max expected 1-day loss at 95% confidence"
           colorClass="danger"
           tooltip="Value at Risk: there is a 5% chance of losing more than this amount in a single trading day"
         />
         <MetricCard
           label="Sharpe Ratio"
-          formatted={formatRaw(sharpe_ratio, 2)}
-          description={sharpe_ratio >= 1 ? 'Excellent risk-adjusted return' : sharpe_ratio >= 0 ? 'Acceptable performance' : 'Poor risk-adjusted return'}
+          formatted={formatRaw(sharpe, 2)}
+          description={sharpe >= 1 ? 'Excellent risk-adjusted return' : sharpe >= 0 ? 'Acceptable performance' : 'Poor risk-adjusted return'}
           colorClass={sharpeColor}
           tooltip="(Return - Risk-free rate) / Volatility. Higher is better. ≥1 is considered good."
         />
         <MetricCard
           label="Max Drawdown"
-          formatted={formatPct(max_drawdown)}
+          formatted={`${max_drawdown != null ? max_drawdown.toFixed(2) : '—'}%`}
           description="Largest peak-to-trough decline"
           colorClass="danger"
           tooltip="Percentage decline from the highest portfolio value to the lowest"
         />
         <MetricCard
           label="Portfolio Volatility"
-          formatted={formatPct(volatility)}
+          formatted={`${volatility != null ? volatility.toFixed(2) : '—'}%`}
           description="Annualised standard deviation"
           colorClass=""
           tooltip="Annualised volatility of portfolio returns"
@@ -148,9 +150,9 @@ export default function RiskMetricsPanel({ riskData, currency = 'USD' }) {
       <div className="risk-grid-secondary">
         <MetricCard
           label="Sortino Ratio"
-          formatted={formatRaw(sortino_ratio, 2)}
+          formatted={formatRaw(sortino, 2)}
           description="Downside risk-adjusted return"
-          colorClass={getSharpeColor(sortino_ratio)}
+          colorClass={getSharpeColor(sortino)}
           tooltip="Like Sharpe, but only penalises downside volatility"
         />
         <MetricCard
@@ -162,14 +164,14 @@ export default function RiskMetricsPanel({ riskData, currency = 'USD' }) {
         />
         <MetricCard
           label="VaR 99% (1-Day)"
-          formatted={formatCurrency(var_99, currency)}
+          formatted={`${var_99 != null ? var_99.toFixed(2) : '—'}%`}
           description="Max expected 1-day loss at 99% confidence"
           colorClass="danger"
           tooltip="Only 1% chance of losing more than this in a single day"
         />
         <MetricCard
           label="CVaR 95%"
-          formatted={formatCurrency(cvar_95, currency)}
+          formatted={`${cvar_95 != null ? cvar_95.toFixed(2) : '—'}%`}
           description="Expected loss beyond VaR 95%"
           colorClass="danger"
           tooltip="Conditional VaR (Expected Shortfall): average loss when loss exceeds VaR 95%"

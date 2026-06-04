@@ -112,7 +112,7 @@ export default function RiskHistory({ token, portfolioId, currency = 'USD' }) {
 
   // Normalize data
   const chartData = history.map((d) => ({
-    date: formatDate(d.date || d.timestamp),
+    date: formatDate(d.ts),
     value: d.portfolio_value ?? d.value,
     var95: d.var_95 ?? d.var95,
   }));
