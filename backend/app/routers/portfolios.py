@@ -4,7 +4,7 @@ import logging
 import uuid
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Response
 from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -74,12 +74,12 @@ async def create_portfolio(
     return PortfolioResponse.model_validate(portfolio)
 
 
-@router.delete("/{portfolio_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{portfolio_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
 async def delete_portfolio(
     portfolio_id: uuid.UUID,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> None:
+):
     portfolio = await _assert_owner(portfolio_id, current_user.id, db)
     await db.delete(portfolio)
     await db.commit()
@@ -202,13 +202,14 @@ async def add_or_update_holding(
 @router.delete(
     "/{portfolio_id}/holdings/{symbol}",
     status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
 )
 async def remove_holding(
     portfolio_id: uuid.UUID,
     symbol: str,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> None:
+):
     await _assert_owner(portfolio_id, current_user.id, db)
 
     result = await db.execute(
