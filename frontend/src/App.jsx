@@ -5,7 +5,7 @@ import Auth from './components/Auth';
 import Dashboard from './components/Dashboard';
 
 const GOOGLE_CLIENT_ID =
-  import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
+  import.meta.env.VITE_GOOGLE_CLIENT_ID || '736682930147-2p9ee01tarshsu87iihdovf2qf9aps1c.apps.googleusercontent.com';
 
 const STORAGE_KEY = 'prm_session';
 
