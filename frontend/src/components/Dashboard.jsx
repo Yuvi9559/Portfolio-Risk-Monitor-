@@ -8,6 +8,7 @@ import CorrelationHeatmap from './CorrelationHeatmap';
 import NewsPanel from './NewsPanel';
 import RiskHistory from './RiskHistory';
 import ExportPanel from './ExportPanel';
+import TopTraders from './TopTraders';
 
 const TABS = [
   { id: 'overview',    icon: '📊', label: 'Overview' },
@@ -15,6 +16,7 @@ const TABS = [
   { id: 'history',     icon: '📈', label: 'History' },
   { id: 'news',        icon: '📰', label: 'News' },
   { id: 'montecarlo',  icon: '🎲', label: 'Monte Carlo' },
+  { id: 'traders',     icon: '🏆', label: 'Top Traders' },
   { id: 'export',      icon: '💾', label: 'Export' },
 ];
 
@@ -358,7 +360,18 @@ export default function Dashboard({ token, user, onLogout }) {
 
         {/* ── Main Panel ── */}
         <main className="main-panel">
-          {!activePortId ? (
+          {/* Top Traders tab — always accessible, no portfolio needed */}
+          {activeTab === 'traders' ? (
+            <>
+              <div className="panel-header">
+                <div>
+                  <div className="panel-title">Top Traders</div>
+                  <div className="panel-subtitle">Learn from the world's most successful investors — SEC 13F filings</div>
+                </div>
+              </div>
+              <TopTraders token={token} />
+            </>
+          ) : !activePortId ? (
             <div className="empty-state">
               <div className="empty-icon">📂</div>
               <div className="empty-title">No Portfolio Selected</div>

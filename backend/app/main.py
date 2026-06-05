@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
 from app.database import Base, engine
-from app.routers import auth, export, news, portfolios, risk, websocket
+from app.routers import auth, export, news, portfolios, risk, traders, websocket
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -31,6 +31,12 @@ async def lifespan(app: FastAPI):
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
         logger.info("Database tables ready.")
+
+        # Seed top traders data
+        from app.services.edgar_service import seed_traders
+        from app.database import AsyncSessionLocal
+        async with AsyncSessionLocal() as session:
+            await seed_traders(session)
     except Exception as exc:
         logger.critical("Database initialization failed: %s", exc)
     yield
@@ -61,6 +67,7 @@ app.include_router(portfolios.router)
 app.include_router(risk.router)
 app.include_router(news.router)
 app.include_router(export.router)
+app.include_router(traders.router)
 app.include_router(websocket.router)
 
 

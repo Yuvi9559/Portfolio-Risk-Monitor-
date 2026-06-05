@@ -141,3 +141,45 @@ class RiskSnapshotResponse(BaseModel):
     beta: Optional[float] = None
     max_drawdown: Optional[float] = None
     volatility: Optional[float] = None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Top Traders
+# ─────────────────────────────────────────────────────────────────────────────
+class TraderHoldingResponse(BaseModel):
+    model_config = {"from_attributes": True}
+
+    symbol: str
+    company_name: str = ""
+    shares: float
+    value: float
+    pct_portfolio: float
+    change_type: str = "HOLD"
+    change_shares: float = 0
+    change_pct: float = 0
+    sector: str = "Other"
+    current_price: Optional[float] = None
+    day_change_pct: Optional[float] = None
+
+
+class TraderSummary(BaseModel):
+    model_config = {"from_attributes": True}
+
+    id: str
+    name: str
+    firm: str
+    strategy: str
+    bio: str = ""
+    avatar_url: Optional[str] = None
+    portfolio_value: Optional[float] = None
+    quarter: str = ""
+    top_holdings: List[TraderHoldingResponse] = []
+    total_holdings: int = 0
+
+
+class TraderDetailResponse(BaseModel):
+    trader: TraderSummary
+    holdings: List[TraderHoldingResponse] = []
+    recent_buys: List[TraderHoldingResponse] = []
+    recent_sells: List[TraderHoldingResponse] = []
+    sector_allocation: Dict[str, float] = {}

@@ -176,3 +176,55 @@ class NewsCache(Base):
     cached_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False
     )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Top Traders (SEC 13F)
+# ─────────────────────────────────────────────────────────────────────────────
+class Trader(Base):
+    __tablename__ = "traders"
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)  # slug like 'warren-buffett'
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    firm: Mapped[str] = mapped_column(Text, nullable=False)
+    strategy: Mapped[str] = mapped_column(Text, nullable=False)
+    bio: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    avatar_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    cik: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    portfolio_value: Mapped[float | None] = mapped_column(Numeric(16, 2), nullable=True)
+    quarter: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+
+    holdings: Mapped[list["TraderHolding"]] = relationship(
+        "TraderHolding", back_populates="trader", cascade="all, delete-orphan"
+    )
+
+
+class TraderHolding(Base):
+    __tablename__ = "trader_holdings"
+    __table_args__ = (
+        UniqueConstraint("trader_id", "symbol", "quarter", name="uq_trader_holding"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    trader_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("traders.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    symbol: Mapped[str] = mapped_column(Text, nullable=False)
+    company_name: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    shares: Mapped[float] = mapped_column(Numeric(16, 2), nullable=False)
+    value: Mapped[float] = mapped_column(Numeric(16, 2), nullable=False)
+    pct_portfolio: Mapped[float] = mapped_column(Numeric(8, 4), nullable=False, default=0)
+    change_type: Mapped[str] = mapped_column(Text, nullable=False, default="HOLD")
+    change_shares: Mapped[float] = mapped_column(Numeric(16, 2), nullable=False, default=0)
+    change_pct: Mapped[float] = mapped_column(Numeric(8, 4), nullable=False, default=0)
+    quarter: Mapped[str] = mapped_column(Text, nullable=False)
+    sector: Mapped[str] = mapped_column(Text, nullable=False, default="Other")
+
+    trader: Mapped["Trader"] = relationship("Trader", back_populates="holdings")

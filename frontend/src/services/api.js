@@ -119,6 +119,15 @@ const api = {
     a.remove();
     URL.revokeObjectURL(url);
   },
+
+  /** Top Traders */
+  getTraders: (token) => request('GET', '/traders', null, token),
+
+  getTraderDetail: (token, traderId) =>
+    request('GET', `/traders/${traderId}`, null, token),
+
+  getTraderNews: (token, traderId) =>
+    request('GET', `/traders/${traderId}/news`, null, token),
 };
 
 /** WebSocket factory for live price updates */
