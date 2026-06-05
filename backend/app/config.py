@@ -33,7 +33,7 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440  # 24 hours
 
     # ── Google OAuth ─────────────────────────────────────────────────────────
-    GOOGLE_CLIENT_ID: str = ""
+    GOOGLE_CLIENT_ID: str = "736682930147-2p9ee01tarshsu87iihdovf2qf9aps1c.apps.googleusercontent.com"
 
     # ── Resend (email) ───────────────────────────────────────────────────────
     RESEND_API_KEY: str = ""
