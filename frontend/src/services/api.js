@@ -14,7 +14,16 @@ async function request(method, path, body = null, token = null) {
   const opts = { method, headers };
   if (body) opts.body = JSON.stringify(body);
 
-  const res = await fetch(`${BASE}${path}`, opts);
+  let res;
+  try {
+    res = await fetch(`${BASE}${path}`, opts);
+  } catch (networkErr) {
+    // fetch() only throws on network-level failures (DNS, connection reset, CORS block, etc.)
+    console.error(`[API] Network error on ${method} ${path}:`, networkErr);
+    throw new Error(
+      `Cannot reach server. Please check your internet connection and try again. (${networkErr.message})`
+    );
+  }
 
   if (!res.ok) {
     let msg = `HTTP ${res.status}`;
@@ -30,10 +39,35 @@ async function request(method, path, body = null, token = null) {
   return res;
 }
 
+/** Retry wrapper — retries on network errors with exponential backoff */
+async function requestWithRetry(method, path, body = null, token = null, retries = 2) {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await request(method, path, body, token);
+    } catch (err) {
+      const isNetworkError = err.message.includes('Cannot reach server');
+      if (isNetworkError && attempt < retries) {
+        const delay = 1000 * (attempt + 1); // 1s, 2s
+        console.warn(`[API] Retry ${attempt + 1}/${retries} in ${delay}ms…`);
+        await new Promise((r) => setTimeout(r, delay));
+        continue;
+      }
+      throw err;
+    }
+  }
+}
+
 const api = {
-  /** Auth — reshapes flat backend response into { access_token, user } */
+  /** Auth — wakes backend then authenticates with retry */
   loginWithGoogle: async (idToken) => {
-    const data = await request('POST', '/auth/google', { id_token: idToken });
+    // Wake backend first (Railway cold starts can cause the auth POST to fail)
+    try {
+      await fetch(`${BASE}/health`, { method: 'GET' });
+    } catch (_) {
+      // Ignore — the retry below will handle a truly down server
+    }
+
+    const data = await requestWithRetry('POST', '/auth/google', { id_token: idToken });
     // Backend returns: { access_token, token_type, user_id, email, full_name, avatar_url }
     // Reshape into session format App.jsx expects: { access_token, user: {...} }
     return {

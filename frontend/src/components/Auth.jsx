@@ -14,22 +14,38 @@ const FEATURES = [
 export default function Auth({ onLogin }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [lastCredential, setLastCredential] = useState(null);
 
-  const handleGoogleSuccess = async (credentialResponse) => {
+  const attemptLogin = async (credential) => {
     setError('');
     setLoading(true);
     try {
-      const data = await api.loginWithGoogle(credentialResponse.credential);
+      console.log('[Auth] Sending credential to backend…');
+      const data = await api.loginWithGoogle(credential);
+      console.log('[Auth] Login successful');
       onLogin(data);
     } catch (err) {
+      console.error('[Auth] Login failed:', err);
+      setLastCredential(credential); // Store for retry
       setError(err.message || 'Sign-in failed. Please try again.');
     } finally {
       setLoading(false);
     }
   };
 
+  const handleGoogleSuccess = async (credentialResponse) => {
+    await attemptLogin(credentialResponse.credential);
+  };
+
   const handleGoogleError = () => {
     setError('Google Sign-In was cancelled or failed. Please try again.');
+    setLastCredential(null);
+  };
+
+  const handleRetry = () => {
+    if (lastCredential) {
+      attemptLogin(lastCredential);
+    }
   };
 
   return (
@@ -79,7 +95,30 @@ export default function Auth({ onLogin }) {
           </div>
         )}
 
-        {error && <div className="auth-error">{error}</div>}
+        {error && (
+          <div className="auth-error">
+            {error}
+            {lastCredential && (
+              <button
+                className="retry-btn"
+                onClick={handleRetry}
+                style={{
+                  display: 'block',
+                  margin: '8px auto 0',
+                  padding: '6px 20px',
+                  background: 'rgba(0,206,209,0.15)',
+                  color: '#00ced1',
+                  border: '1px solid rgba(0,206,209,0.3)',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                  fontSize: '0.85rem',
+                }}
+              >
+                ↻ Retry
+              </button>
+            )}
+          </div>
+        )}
 
         <div className="auth-terms">
           By signing in, you agree to our Terms of Service and Privacy Policy.
