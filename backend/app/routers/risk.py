@@ -7,6 +7,7 @@ from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import get_current_user
@@ -76,7 +77,7 @@ async def get_risk_metrics(
         mean_return=risk_result.daily_return_pct / 100,
         volatility=risk_result.volatility / 100,
         days=90,
-        simulations=1000,
+        simulations=10000,
     )
 
     # ── Persist snapshot ──────────────────────────────────────────────────────
@@ -96,7 +97,15 @@ async def get_risk_metrics(
         volatility=risk_result.volatility,
     )
     db.add(snapshot)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        logger.warning(
+            "RiskSnapshot duplicate PK detected for portfolio %s at %s. Ignored.",
+            portfolio_id,
+            snapshot.ts,
+        )
 
     # ── Build enriched holdings list ──────────────────────────────────────────
     enriched_holdings: List[HoldingResponse] = []

@@ -181,12 +181,7 @@ export default function ExportPanel({ token, portfolioId, portfolioName }) {
             {[
               'Sheet 1: Holdings & Market Data',
               'Sheet 2: Risk Metrics Summary',
-              'Sheet 3: Historical Value Series',
-              'Sheet 4: Correlation Matrix',
-              'Sheet 5: Monte Carlo Percentiles',
-              'Sheet 6: Daily Returns',
-              'Sheet 7: P&L Attribution',
-              'Sheet 8: Metadata & Settings',
+              'Sheet 3: Historical Risk Snapshots',
             ].map((item) => (
               <li key={item} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--text-muted)' }}>
                 <span style={{ color: '#4ade80', fontSize: 10 }}>●</span>
