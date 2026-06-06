@@ -122,7 +122,7 @@ export default function MonteCarloChart({ monteCarloData, currentValue, currency
       {/* Legend */}
       <div className="chart-legend">
         <div className="legend-item">
-          <div className="legend-line" style={{ background: '#ff4d4d', borderTop: '2px dashed #ff4d4d', background: 'none' }} />
+          <div className="legend-line" style={{ borderTop: '2px dashed #ff4d4d', background: 'none' }} />
           <span>Pessimistic (5th percentile)</span>
         </div>
         <div className="legend-item">
@@ -130,7 +130,7 @@ export default function MonteCarloChart({ monteCarloData, currentValue, currency
           <span>Expected (50th percentile)</span>
         </div>
         <div className="legend-item">
-          <div className="legend-line" style={{ background: '#4ade80', borderTop: '2px dashed #4ade80', background: 'none' }} />
+          <div className="legend-line" style={{ borderTop: '2px dashed #4ade80', background: 'none' }} />
           <span>Optimistic (95th percentile)</span>
         </div>
       </div>
