@@ -4,11 +4,13 @@ import logging
 import contextlib
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import text
 
 from app.config import get_settings
-from app.database import Base, engine
+from app.database import Base, engine, get_db
 from app.routers import auth, export, news, portfolios, risk, traders, websocket
 
 logger = logging.getLogger(__name__)
@@ -73,9 +75,20 @@ app.include_router(websocket.router)
 
 # ── Health ────────────────────────────────────────────────────────────────────
 @app.get("/health", tags=["Health"])
-async def health() -> dict:
+async def health(db: AsyncSession = Depends(get_db)) -> dict:
+    db_status = "ok"
+    db_error = None
+    try:
+        await db.execute(text("SELECT 1"))
+    except Exception as exc:
+        db_status = "error"
+        db_error = str(exc)
+        logger.error("Health check database failure: %s", exc)
+
     return {
-        "status": "ok",
+        "status": "ok" if db_status == "ok" else "error",
+        "database": db_status,
+        "database_error": db_error,
         "app": settings.APP_NAME,
         "version": settings.APP_VERSION,
     }
