@@ -1,3 +1,10 @@
+# ── TEMPORARY DEACTIVATION NOTICE ─────────────────────────────────────────────
+# Google OAuth token verification has been temporarily bypassed for local/offline testing.
+# When BYPASS_GOOGLE_AUTH is set to True, the verify_google_token function automatically
+# returns a mock demo user instead of sending external network requests to Google.
+# To re-enable Google Auth, set BYPASS_GOOGLE_AUTH = False.
+# ──────────────────────────────────────────────────────────────────────────────
+
 from __future__ import annotations
 
 import logging
@@ -27,38 +34,51 @@ security = HTTPBearer()
 # ─────────────────────────────────────────────────────────────────────────────
 # Google token verification
 # ─────────────────────────────────────────────────────────────────────────────
+BYPASS_GOOGLE_AUTH = True
+
 def verify_google_token(id_token: str) -> Dict[str, Any]:
     """Verify a Google ID token and return the user's info dict.
 
     Returns a dict with keys: sub, email, name, picture.
     Raises HTTPException 401 on failure.
     """
-    try:
-        request = google_requests.Request()
-        id_info = google_id_token.verify_oauth2_token(
-            id_token,
-            request,
-            settings.GOOGLE_CLIENT_ID,
-            clock_skew_in_seconds=10,
-        )
+    if BYPASS_GOOGLE_AUTH:
+        logger.info("Bypassing Google OAuth token verification. Returning mock demo user.")
         return {
-            "sub": id_info.get("sub", ""),
-            "email": id_info.get("email", ""),
-            "name": id_info.get("name", ""),
-            "picture": id_info.get("picture", ""),
+            "sub": "mock_google_id_123456789",
+            "email": "demo.user@example.com",
+            "name": "Demo User",
+            "picture": "",
         }
-    except ValueError as exc:
-        logger.warning("Google token verification failed: %s", exc)
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid Google ID token",
-        ) from exc
-    except Exception as exc:
-        logger.error("Unexpected error during Google token verification: %s", exc)
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Could not verify Google token",
-        ) from exc
+
+    # Original verification logic wrapped in conditional block to avoid code removal
+    if not BYPASS_GOOGLE_AUTH:
+        try:
+            request = google_requests.Request()
+            id_info = google_id_token.verify_oauth2_token(
+                id_token,
+                request,
+                settings.GOOGLE_CLIENT_ID,
+                clock_skew_in_seconds=10,
+            )
+            return {
+                "sub": id_info.get("sub", ""),
+                "email": id_info.get("email", ""),
+                "name": id_info.get("name", ""),
+                "picture": id_info.get("picture", ""),
+            }
+        except ValueError as exc:
+            logger.warning("Google token verification failed: %s", exc)
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid Google ID token",
+            ) from exc
+        except Exception as exc:
+            logger.error("Unexpected error during Google token verification: %s", exc)
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Could not verify Google token",
+            ) from exc
 
 
 # ─────────────────────────────────────────────────────────────────────────────

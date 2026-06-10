@@ -1,6 +1,15 @@
+// ── TEMPORARY DEACTIVATION NOTICE ─────────────────────────────────────────────
+// Google Sign-In has been temporarily disabled/bypassed for development/offline testing.
+// When BYPASS_GOOGLE_AUTH is set to true, the Google Login button is replaced with a 
+// mock Demo Sign-In button that allows immediate entry to the dashboard.
+// To re-enable Google Sign-In, set BYPASS_GOOGLE_AUTH = false.
+// ──────────────────────────────────────────────────────────────────────────────
+
 import React, { useState } from 'react';
 import { GoogleLogin } from '@react-oauth/google';
 import api from '../services/api';
+
+const BYPASS_GOOGLE_AUTH = true;
 
 const FEATURES = [
   { icon: '📊', label: 'Value at Risk (VaR) Analysis' },
@@ -81,17 +90,42 @@ export default function Auth({ onLogin }) {
             Signing in…
           </button>
         ) : (
-          <div style={{ display: 'flex', justifyContent: 'center' }}>
-            <GoogleLogin
-              onSuccess={handleGoogleSuccess}
-              onError={handleGoogleError}
-              useOneTap={false}
-              theme="filled_black"
-              shape="rectangular"
-              size="large"
-              text="signin_with"
-              width="384"
-            />
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
+            {!BYPASS_GOOGLE_AUTH ? (
+              <GoogleLogin
+                onSuccess={handleGoogleSuccess}
+                onError={handleGoogleError}
+                useOneTap={false}
+                theme="filled_black"
+                shape="rectangular"
+                size="large"
+                text="signin_with"
+                width="384"
+              />
+            ) : (
+              <button
+                className="google-btn"
+                onClick={() => attemptLogin("mock_offline_credential_token")}
+                style={{
+                  background: 'var(--accent)',
+                  color: '#000',
+                  fontWeight: 600,
+                  width: '384px',
+                  maxWidth: '100%',
+                  padding: '12px',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                  border: 'none',
+                  fontSize: '15px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '8px',
+                }}
+              >
+                <span>🔑</span> Sign In (Demo Mode)
+              </button>
+            )}
           </div>
         )}
 
