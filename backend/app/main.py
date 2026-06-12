@@ -205,3 +205,25 @@ async def debug_auth(db: AsyncSession = Depends(get_db)) -> dict:
             "error_msg": str(exc),
             "traceback": tb
         }
+
+
+# ── Debug Recreate ────────────────────────────────────────────────────────────
+@app.get("/debug/recreate", tags=["Health"])
+async def debug_recreate() -> dict:
+    import traceback
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.drop_all)
+            await conn.run_sync(Base.metadata.create_all)
+        return {
+            "status": "success",
+            "message": "All database tables dropped and recreated successfully."
+        }
+    except Exception as exc:
+        tb = traceback.format_exc()
+        return {
+            "status": "error",
+            "error_class": exc.__class__.__name__,
+            "error_msg": str(exc),
+            "traceback": tb
+        }
