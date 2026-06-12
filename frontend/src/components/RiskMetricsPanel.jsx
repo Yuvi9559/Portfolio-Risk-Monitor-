@@ -65,6 +65,18 @@ function getDailyPnlClass(v) {
 }
 
 export default function RiskMetricsPanel({ riskData, currency = 'USD' }) {
+  if (riskData?.isEmpty) {
+    return (
+      <div className="empty-state" style={{ padding: '40px 20px', background: 'var(--bg-card)', border: '1px dashed var(--border-color)', borderRadius: 12, marginBottom: 24 }}>
+        <div className="empty-icon">🛡️</div>
+        <div className="empty-title" style={{ fontSize: 16, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 8 }}>No Risk Metrics Calculated</div>
+        <div className="empty-desc" style={{ fontSize: 13, color: 'var(--text-muted)', maxWidth: 400, margin: '0 auto', lineHeight: 1.5 }}>
+          This portfolio has no assets. Please navigate to the <strong>Builder</strong> tab to add holdings and calculate risk metrics.
+        </div>
+      </div>
+    );
+  }
+
   if (!riskData) {
     return (
       <div>

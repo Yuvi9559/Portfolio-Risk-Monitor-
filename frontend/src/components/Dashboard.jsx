@@ -133,14 +133,22 @@ export default function Dashboard({ token, user, onLogout }) {
 
     const load = async () => {
       try {
-        const [risk, hold] = await Promise.all([
-          api.getRisk(token, activePortId),
-          api.getHoldings(token, activePortId),
-        ]);
-        setRiskData(risk);
+        const hold = await api.getHoldings(token, activePortId);
         setHoldings(hold);
+        if (hold && hold.length > 0) {
+          try {
+            const risk = await api.getRisk(token, activePortId);
+            setRiskData(risk);
+          } catch (riskErr) {
+            console.error('Failed to load risk data:', riskErr);
+            setRiskData({ isEmpty: true });
+          }
+        } else {
+          setRiskData({ isEmpty: true });
+        }
       } catch (err) {
         console.error('Failed to load portfolio data:', err);
+        setRiskData({ isEmpty: true });
       }
     };
     load();
@@ -207,14 +215,22 @@ export default function Dashboard({ token, user, onLogout }) {
   const handleHoldingsChange = async () => {
     if (!activePortId) return;
     try {
-      const [risk, hold] = await Promise.all([
-        api.getRisk(token, activePortId),
-        api.getHoldings(token, activePortId),
-      ]);
-      setRiskData(risk);
+      const hold = await api.getHoldings(token, activePortId);
       setHoldings(hold);
+      if (hold && hold.length > 0) {
+        try {
+          const risk = await api.getRisk(token, activePortId);
+          setRiskData(risk);
+        } catch (riskErr) {
+          console.error('Refresh risk failed:', riskErr);
+          setRiskData({ isEmpty: true });
+        }
+      } else {
+        setRiskData({ isEmpty: true });
+      }
     } catch (err) {
       console.error('Refresh failed:', err);
+      setRiskData({ isEmpty: true });
     }
   };
 
