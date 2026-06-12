@@ -120,3 +120,27 @@ async def health(db: AsyncSession = Depends(get_db)) -> dict:
         "app": settings.APP_NAME,
         "version": settings.APP_VERSION,
     }
+
+
+# ── Debug DB ──────────────────────────────────────────────────────────────────
+@app.get("/debug/db", tags=["Health"])
+async def debug_db(db: AsyncSession = Depends(get_db)) -> dict:
+    import traceback
+    try:
+        res = await db.execute(text("SELECT * FROM users LIMIT 5"))
+        rows = res.fetchall()
+        users_info = [str(r) for r in rows]
+        return {
+            "status": "success",
+            "message": "Connected to users table successfully",
+            "users_count": len(users_info),
+            "users": users_info
+        }
+    except Exception as exc:
+        tb = traceback.format_exc()
+        return {
+            "status": "error",
+            "error_class": exc.__class__.__name__,
+            "error_msg": str(exc),
+            "traceback": tb
+        }
