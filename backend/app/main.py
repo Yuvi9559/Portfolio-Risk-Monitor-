@@ -4,7 +4,8 @@ import logging
 import contextlib
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
@@ -27,20 +28,33 @@ logging.basicConfig(
 # ── Lifespan ──────────────────────────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Create all DB tables on startup."""
-    logger.info("Starting up %s v%s …", settings.APP_NAME, settings.APP_VERSION)
-    try:
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-        logger.info("Database tables ready.")
+    # Retry database initialization up to 5 times
+    db_initialized = False
+    for attempt in range(1, 6):
+        try:
+            logger.info("Database initialization attempt %d/5...", attempt)
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+            logger.info("Database tables ready.")
+            db_initialized = True
+            break
+        except Exception as exc:
+            logger.warning("Database connection attempt %d failed: %s", attempt, exc)
+            if attempt < 5:
+                import asyncio
+                await asyncio.sleep(3)
+            else:
+                logger.critical("Database initialization failed after 5 attempts.")
 
-        # Seed top traders data
-        from app.services.edgar_service import seed_traders
-        from app.database import AsyncSessionLocal
-        async with AsyncSessionLocal() as session:
-            await seed_traders(session)
-    except Exception as exc:
-        logger.critical("Database initialization failed: %s", exc)
+    if db_initialized:
+        try:
+            # Seed top traders data
+            from app.services.edgar_service import seed_traders
+            from app.database import AsyncSessionLocal
+            async with AsyncSessionLocal() as session:
+                await seed_traders(session)
+        except Exception as exc:
+            logger.error("Failed to seed traders: %s", exc)
     yield
     logger.info("Shutting down …")
     await engine.dispose()
@@ -62,6 +76,20 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ── Global Exception Handler (CORS-Compliant Error Responses) ─────────────────
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.error("Unhandled exception occurred: %s", exc, exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal Server Error"},
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "*",
+            "Access-Control-Allow-Headers": "*",
+        }
+    )
 
 # ── Routers ───────────────────────────────────────────────────────────────────
 app.include_router(auth.router)
