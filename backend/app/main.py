@@ -144,3 +144,64 @@ async def debug_db(db: AsyncSession = Depends(get_db)) -> dict:
             "error_msg": str(exc),
             "traceback": tb
         }
+
+
+# ── Debug Auth ────────────────────────────────────────────────────────────────
+@app.get("/debug/auth", tags=["Health"])
+async def debug_auth(db: AsyncSession = Depends(get_db)) -> dict:
+    import traceback
+    from app.models import User
+    from sqlalchemy import select
+    from app.auth import create_access_token
+    import uuid
+
+    google_id = "mock_google_id_123456789"
+    email = "demo.user@example.com"
+    full_name = "Demo User"
+    avatar_url = ""
+
+    try:
+        # 1. Select user
+        result = await db.execute(select(User).where(User.google_id == google_id))
+        user = result.scalar_one_or_none()
+
+        action = "none"
+        if user is None:
+            # 2. Create user if not exists
+            user = User(
+                google_id=google_id,
+                email=email,
+                full_name=full_name or None,
+                avatar_url=avatar_url or None,
+            )
+            db.add(user)
+            await db.flush()
+            action = "create"
+        else:
+            user.full_name = full_name or user.full_name
+            user.avatar_url = avatar_url or user.avatar_url
+            action = "update"
+
+        # 3. Commit transaction
+        await db.commit()
+        await db.refresh(user)
+
+        # 4. Create token
+        token = create_access_token(user.id, user.email)
+
+        return {
+            "status": "success",
+            "action": action,
+            "user_id": str(user.id),
+            "email": user.email,
+            "access_token_prefix": token[:15]
+        }
+    except Exception as exc:
+        await db.rollback()
+        tb = traceback.format_exc()
+        return {
+            "status": "error",
+            "error_class": exc.__class__.__name__,
+            "error_msg": str(exc),
+            "traceback": tb
+        }
