@@ -1,14 +1,15 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
 import api, { createPriceSocket } from '../services/api';
 import RiskMetricsPanel from './RiskMetricsPanel';
 import HoldingsTable from './HoldingsTable';
-import PortfolioBuilder from './PortfolioBuilder';
-import MonteCarloChart from './MonteCarloChart';
-import CorrelationHeatmap from './CorrelationHeatmap';
-import NewsPanel from './NewsPanel';
-import RiskHistory from './RiskHistory';
-import ExportPanel from './ExportPanel';
-import TopTraders from './TopTraders';
+
+const PortfolioBuilder = lazy(() => import('./PortfolioBuilder'));
+const MonteCarloChart = lazy(() => import('./MonteCarloChart'));
+const CorrelationHeatmap = lazy(() => import('./CorrelationHeatmap'));
+const NewsPanel = lazy(() => import('./NewsPanel'));
+const RiskHistory = lazy(() => import('./RiskHistory'));
+const ExportPanel = lazy(() => import('./ExportPanel'));
+const TopTraders = lazy(() => import('./TopTraders'));
 
 const TABS = [
   { id: 'overview',    icon: '📊', label: 'Overview' },
@@ -422,7 +423,9 @@ export default function Dashboard({ token, user, onLogout }) {
                   <div className="panel-subtitle">Learn from the world's most successful investors — SEC 13F filings</div>
                 </div>
               </div>
-              <TopTraders token={token} />
+              <Suspense fallback={<div className="skeleton" style={{ height: 400, borderRadius: 12 }} />}>
+                <TopTraders token={token} />
+              </Suspense>
             </>
           ) : !activePortId ? (
             <div className="empty-state">
@@ -474,7 +477,9 @@ export default function Dashboard({ token, user, onLogout }) {
                     currency={activePortfolio?.currency}
                   />
                   {riskData?.correlation && Object.keys(riskData.correlation).length > 1 && (
-                    <CorrelationHeatmap matrix={riskData.correlation} />
+                    <Suspense fallback={<div className="skeleton" style={{ height: 250, borderRadius: 12, marginTop: 16 }} />}>
+                      <CorrelationHeatmap matrix={riskData.correlation} />
+                    </Suspense>
                   )}
                 </>
               )}
@@ -488,14 +493,16 @@ export default function Dashboard({ token, user, onLogout }) {
                       <div className="panel-subtitle">Add and manage your holdings</div>
                     </div>
                   </div>
-                  <PortfolioBuilder
-                    token={token}
-                    portfolioId={activePortId}
-                    holdings={holdings}
-                    livePrices={livePrices}
-                    onHoldingsChange={handleHoldingsChange}
-                    currency={activePortfolio?.currency}
-                  />
+                  <Suspense fallback={<div className="skeleton" style={{ height: 400, borderRadius: 12 }} />}>
+                    <PortfolioBuilder
+                      token={token}
+                      portfolioId={activePortId}
+                      holdings={holdings}
+                      livePrices={livePrices}
+                      onHoldingsChange={handleHoldingsChange}
+                      currency={activePortfolio?.currency}
+                    />
+                  </Suspense>
                 </>
               )}
 
@@ -508,7 +515,9 @@ export default function Dashboard({ token, user, onLogout }) {
                       <div className="panel-subtitle">Historical value and risk metrics over time</div>
                     </div>
                   </div>
-                  <RiskHistory token={token} portfolioId={activePortId} currency={activePortfolio?.currency} />
+                  <Suspense fallback={<div className="skeleton" style={{ height: 350, borderRadius: 12 }} />}>
+                    <RiskHistory token={token} portfolioId={activePortId} currency={activePortfolio?.currency} />
+                  </Suspense>
                 </>
               )}
 
@@ -521,7 +530,9 @@ export default function Dashboard({ token, user, onLogout }) {
                       <div className="panel-subtitle">AI-powered news sentiment for your holdings</div>
                     </div>
                   </div>
-                  <NewsPanel token={token} portfolioId={activePortId} />
+                  <Suspense fallback={<div className="skeleton" style={{ height: 350, borderRadius: 12 }} />}>
+                    <NewsPanel token={token} portfolioId={activePortId} />
+                  </Suspense>
                 </>
               )}
 
@@ -534,11 +545,13 @@ export default function Dashboard({ token, user, onLogout }) {
                       <div className="panel-subtitle">90-day probabilistic portfolio outlook</div>
                     </div>
                   </div>
-                  <MonteCarloChart
-                    monteCarloData={riskData?.monte_carlo}
-                    currentValue={riskData?.portfolio_value}
-                    currency={activePortfolio?.currency}
-                  />
+                  <Suspense fallback={<div className="skeleton" style={{ height: 400, borderRadius: 12 }} />}>
+                    <MonteCarloChart
+                      monteCarloData={riskData?.monte_carlo}
+                      currentValue={riskData?.portfolio_value}
+                      currency={activePortfolio?.currency}
+                    />
+                  </Suspense>
                 </>
               )}
 
@@ -551,7 +564,9 @@ export default function Dashboard({ token, user, onLogout }) {
                       <div className="panel-subtitle">Download your portfolio data and risk reports</div>
                     </div>
                   </div>
-                  <ExportPanel token={token} portfolioId={activePortId} portfolioName={activePortfolio?.name} />
+                  <Suspense fallback={<div className="skeleton" style={{ height: 300, borderRadius: 12 }} />}>
+                    <ExportPanel token={token} portfolioId={activePortId} portfolioName={activePortfolio?.name} />
+                  </Suspense>
                 </>
               )}
             </>

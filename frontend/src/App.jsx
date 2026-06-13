@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { GoogleOAuthProvider } from '@react-oauth/google';
 import './App.css';
 import Auth from './components/Auth';
-import Dashboard from './components/Dashboard';
+
+const Dashboard = lazy(() => import('./components/Dashboard'));
 
 const GOOGLE_CLIENT_ID =
   import.meta.env.VITE_GOOGLE_CLIENT_ID || '736682930147-2p9ee01tarshsu87iihdovf2qf9aps1c.apps.googleusercontent.com';
@@ -40,11 +41,17 @@ export default function App() {
   return (
     <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
       {session ? (
-        <Dashboard
-          token={session.access_token}
-          user={session.user}
-          onLogout={handleLogout}
-        />
+        <Suspense fallback={
+          <div className="dash-root" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: 'var(--bg-dark)' }}>
+            <div className="spinner" style={{ width: 40, height: 40 }} />
+          </div>
+        }>
+          <Dashboard
+            token={session.access_token}
+            user={session.user}
+            onLogout={handleLogout}
+          />
+        </Suspense>
       ) : (
         <Auth onLogin={handleLogin} />
       )}
