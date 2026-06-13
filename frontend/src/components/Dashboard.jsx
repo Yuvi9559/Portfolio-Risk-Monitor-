@@ -195,6 +195,40 @@ export default function Dashboard({ token, user, onLogout }) {
     }
   };
 
+  const handleCreateDemoPortfolio = async () => {
+    try {
+      setLoading(true);
+      const demoPort = await api.createPortfolio(token, "Demo Portfolio", "SPY", "USD");
+      
+      const sampleHoldings = [
+        { symbol: 'AAPL', asset_type: 'stock', shares: 150, avg_cost: 175.50 },
+        { symbol: 'MSFT', asset_type: 'stock', shares: 80, avg_cost: 380.20 },
+        { symbol: 'TSLA', asset_type: 'stock', shares: 50, avg_cost: 210.00 },
+        { symbol: 'BTC-USD', asset_type: 'crypto', shares: 0.75, avg_cost: 42500.00 },
+        { symbol: 'SPY', asset_type: 'etf', shares: 40, avg_cost: 490.10 }
+      ];
+      
+      for (const h of sampleHoldings) {
+        await api.addHolding(token, demoPort.id, h.symbol, h.asset_type, h.shares, h.avg_cost);
+      }
+
+      const data = await api.getPortfolios(token);
+      setPortfolios(data);
+      setActivePortId(demoPort.id);
+      
+      const hold = await api.getHoldings(token, demoPort.id);
+      setHoldings(hold);
+      
+      const risk = await api.getRisk(token, demoPort.id);
+      setRiskData(risk);
+    } catch (err) {
+      console.error('Failed to create demo portfolio:', err);
+      alert('Error creating demo portfolio: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // ── Delete portfolio ─────────────────────────────────────
   const handleDeletePortfolio = async (id, e) => {
     e.stopPropagation();
@@ -302,6 +336,9 @@ export default function Dashboard({ token, user, onLogout }) {
             <button className="sidebar-create-btn" onClick={() => setShowCreateModal(true)}>
               ＋ New Portfolio
             </button>
+            <button className="sidebar-demo-btn" onClick={handleCreateDemoPortfolio} style={{ width: '100%', padding: '8px 12px', background: 'transparent', border: '1px dashed var(--accent-color)', color: 'var(--accent-color)', borderRadius: 8, fontSize: 12, fontWeight: 500, cursor: 'pointer', marginTop: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+              🤖 Create Demo Portfolio
+            </button>
             <div className="portfolio-list">
               {loading ? (
                 <>
@@ -394,13 +431,22 @@ export default function Dashboard({ token, user, onLogout }) {
               <div className="empty-desc">
                 Create a new portfolio to start tracking your risk metrics, holdings, and performance.
               </div>
-              <button
-                className="sidebar-create-btn"
-                style={{ marginTop: 20, width: 'auto', padding: '10px 24px' }}
-                onClick={() => setShowCreateModal(true)}
-              >
-                ＋ Create First Portfolio
-              </button>
+              <div style={{ display: 'flex', gap: 12, marginTop: 20 }}>
+                <button
+                  className="sidebar-create-btn"
+                  style={{ width: 'auto', padding: '10px 24px' }}
+                  onClick={() => setShowCreateModal(true)}
+                >
+                  ＋ Create First Portfolio
+                </button>
+                <button
+                  className="sidebar-demo-btn"
+                  style={{ width: 'auto', padding: '10px 24px', background: 'transparent', border: '1px dashed var(--accent-color)', color: 'var(--accent-color)', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
+                  onClick={handleCreateDemoPortfolio}
+                >
+                  🤖 Create Demo Portfolio
+                </button>
+              </div>
             </div>
           ) : (
             <>

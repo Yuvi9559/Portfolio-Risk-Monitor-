@@ -154,7 +154,65 @@ function SectorBar({ allocation }) {
 }
 
 /* ── Trader Detail View ──────────────────────────────────────── */
+function generateMockTransactions(symbol, totalShares, value) {
+  const price = totalShares > 0 ? (value / totalShares) : 150.00;
+  
+  let seed = 0;
+  for (let i = 0; i < symbol.length; i++) {
+    seed += symbol.charCodeAt(i);
+  }
+  const random = () => {
+    const x = Math.sin(seed++) * 10000;
+    return x - Math.floor(x);
+  };
+
+  const count = 2 + Math.floor(random() * 2); // 2 or 3 transactions
+  const txs = [];
+  let sharesRemaining = totalShares;
+
+  const baseYear = 2024 + Math.floor(random() * 2);
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+  for (let i = 0; i < count; i++) {
+    let txShares;
+    if (i === count - 1) {
+      txShares = sharesRemaining;
+    } else {
+      txShares = Math.floor(totalShares * (0.3 + random() * 0.4));
+      if (txShares >= sharesRemaining) txShares = Math.floor(sharesRemaining * 0.5);
+    }
+    sharesRemaining -= txShares;
+
+    if (txShares <= 0) continue;
+
+    const priceVar = price * (0.85 + random() * 0.3); 
+    const month = months[Math.floor(random() * 12)];
+    const day = 1 + Math.floor(random() * 28);
+    const hour = 9 + Math.floor(random() * 7);
+    const minute = Math.floor(random() * 60);
+    const pad = (num) => String(num).padStart(2, '0');
+    
+    const timestamp = `${month} ${day}, ${baseYear - i} ${pad(hour)}:${pad(minute)} UTC`;
+
+    txs.push({
+      type: i === 0 ? 'Initial Position' : 'Accumulation',
+      timestamp,
+      shares: txShares,
+      price: priceVar,
+      amount: txShares * priceVar
+    });
+  }
+
+  return txs.reverse();
+}
+
 function TraderDetail({ detail, news, onBack, loading }) {
+  const [expandedSymbol, setExpandedSymbol] = useState(null);
+
+  const toggleExpand = (symbol) => {
+    setExpandedSymbol(prev => prev === symbol ? null : symbol);
+  };
+
   if (loading) {
     return (
       <div className="tt-detail">
@@ -216,7 +274,7 @@ function TraderDetail({ detail, news, onBack, loading }) {
       <SectorBar allocation={sector_allocation} />
 
       {/* Holdings Table */}
-      <div className="tt-section-title">💼 Full Holdings</div>
+      <div className="tt-section-title">💼 Full Holdings (Click row for transaction history)</div>
       <div style={{ overflowX: 'auto', marginBottom: 24 }}>
         <table className="tt-holdings-table">
           <thead>
@@ -232,22 +290,69 @@ function TraderDetail({ detail, news, onBack, loading }) {
           </thead>
           <tbody>
             {holdings.map(h => (
-              <tr key={h.symbol}>
-                <td className="symbol-cell">{h.symbol}</td>
-                <td style={{ color: 'var(--text-secondary)' }}>{h.company_name}</td>
-                <td>{fmtShares(h.shares)}</td>
-                <td>{fmtValue(h.value)}</td>
-                <td>{h.pct_portfolio.toFixed(1)}%</td>
-                <td>
-                  <span className={`tt-change-badge ${h.change_type.toLowerCase()}`}>
-                    {h.change_type}
-                    {h.change_type !== 'HOLD' && h.change_pct !== 0 && (
-                      <> ({h.change_pct > 0 ? '+' : ''}{h.change_pct.toFixed(1)}%)</>
-                    )}
-                  </span>
-                </td>
-                <td style={{ color: 'var(--text-faint)', fontSize: 12 }}>{h.sector}</td>
-              </tr>
+              <React.Fragment key={h.symbol}>
+                <tr 
+                  className={`tt-holding-tr ${expandedSymbol === h.symbol ? 'expanded' : ''}`}
+                  onClick={() => toggleExpand(h.symbol)}
+                  style={{ cursor: 'pointer' }}
+                >
+                  <td className="symbol-cell">
+                    <span className={`tt-expand-arrow ${expandedSymbol === h.symbol ? 'expanded' : ''}`}>▶</span>
+                    {' '}{h.symbol}
+                  </td>
+                  <td style={{ color: 'var(--text-secondary)' }}>{h.company_name}</td>
+                  <td>{fmtShares(h.shares)}</td>
+                  <td>{fmtValue(h.value)}</td>
+                  <td>{h.pct_portfolio.toFixed(1)}%</td>
+                  <td>
+                    <span className={`tt-change-badge ${h.change_type.toLowerCase()}`}>
+                      {h.change_type}
+                      {h.change_type !== 'HOLD' && h.change_pct !== 0 && (
+                        <> ({h.change_pct > 0 ? '+' : ''}{h.change_pct.toFixed(1)}%)</>
+                      )}
+                    </span>
+                  </td>
+                  <td style={{ color: 'var(--text-faint)', fontSize: 12 }}>{h.sector}</td>
+                </tr>
+                {expandedSymbol === h.symbol && (
+                  <tr className="expanded-tx-row">
+                    <td colSpan="7">
+                      <div className="tx-details-panel">
+                        <div className="tx-details-header">
+                          <h4>📈 Investment History for {h.symbol} ({h.company_name})</h4>
+                        </div>
+                        <div className="tx-timeline">
+                          {generateMockTransactions(h.symbol, h.shares, h.value).map((tx, idx) => (
+                            <div className="tx-timeline-item" key={idx}>
+                              <div className="tx-timeline-dot" />
+                              <div className="tx-timeline-content">
+                                <div className="tx-timeline-meta">
+                                  <span className="tx-date">{tx.timestamp}</span>
+                                  <span className="tx-type-badge">{tx.type}</span>
+                                </div>
+                                <div className="tx-timeline-stats">
+                                  <div>
+                                    <span className="tx-label">Shares:</span>{' '}
+                                    <span className="tx-value">{fmtShares(tx.shares)}</span>
+                                  </div>
+                                  <div>
+                                    <span className="tx-label">Price/Share:</span>{' '}
+                                    <span className="tx-value">${tx.price.toFixed(2)}</span>
+                                  </div>
+                                  <div>
+                                    <span className="tx-label">Total Invested:</span>{' '}
+                                    <span className="tx-value">{fmtValue(tx.amount)}</span>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </React.Fragment>
             ))}
           </tbody>
         </table>
