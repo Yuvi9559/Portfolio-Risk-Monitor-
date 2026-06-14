@@ -90,6 +90,192 @@ function CreatePortfolioModal({ onConfirm, onCancel }) {
   );
 }
 
+function UploadPortfolioModal({ onConfirm, onCancel }) {
+  const [dragActive, setDragActive] = useState(false);
+  const [file, setFile] = useState(null);
+  const [parsedHoldings, setParsedHoldings] = useState([]);
+  const [error, setError] = useState('');
+
+  const handleDrag = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.type === "dragenter" || e.type === "dragover") {
+      setDragActive(true);
+    } else if (e.type === "dragleave") {
+      setDragActive(false);
+    }
+  };
+
+  const processFile = (selectedFile) => {
+    if (!selectedFile.name.endsWith('.csv')) {
+      setError('Only CSV files are supported at this time.');
+      setFile(null);
+      setParsedHoldings([]);
+      return;
+    }
+    setError('');
+    setFile(selectedFile);
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const text = e.target.result;
+        const lines = text.split(/\r?\n/);
+        if (lines.length < 2) {
+          throw new Error('CSV file is empty or has no header row.');
+        }
+
+        const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+        const symIdx = headers.findIndex(h => h.includes('symbol') || h.includes('ticker') || h.includes('asset'));
+        const sharesIdx = headers.findIndex(h => h.includes('shares') || h.includes('qty') || h.includes('quantity'));
+        const costIdx = headers.findIndex(h => h.includes('cost') || h.includes('price') || h.includes('avg'));
+
+        if (symIdx === -1 || sharesIdx === -1) {
+          throw new Error('CSV headers must include "symbol" and "shares" columns.');
+        }
+
+        const holdings = [];
+        for (let i = 1; i < lines.length; i++) {
+          const line = lines[i].trim();
+          if (!line) continue;
+          
+          const cols = line.split(',').map(c => c.trim().replace(/^["']|["']$/g, ''));
+          if (cols.length <= Math.max(symIdx, sharesIdx)) continue;
+
+          const symbol = cols[symIdx].toUpperCase();
+          const shares = parseFloat(cols[sharesIdx]);
+          const avg_cost = costIdx !== -1 ? parseFloat(cols[costIdx]) : null;
+
+          if (!symbol || isNaN(shares) || shares <= 0) {
+            continue;
+          }
+
+          let asset_type = 'stock';
+          if (symbol.endsWith('-USD') || ['BTC', 'ETH', 'SOL', 'ADA', 'XRP'].includes(symbol)) {
+            asset_type = 'crypto';
+          }
+
+          holdings.push({ symbol, shares, avg_cost: isNaN(avg_cost) ? null : avg_cost, asset_type });
+        }
+
+        if (holdings.length === 0) {
+          throw new Error('No valid holdings parsed from CSV.');
+        }
+
+        setParsedHoldings(holdings);
+      } catch (err) {
+        console.error(err);
+        setError(err.message || 'Failed to parse file.');
+        setFile(null);
+        setParsedHoldings([]);
+      }
+    };
+    reader.readAsText(selectedFile);
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(false);
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      processFile(e.dataTransfer.files[0]);
+    }
+  };
+
+  const handleChange = (e) => {
+    e.preventDefault();
+    if (e.target.files && e.target.files[0]) {
+      processFile(e.target.files[0]);
+    }
+  };
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (parsedHoldings.length === 0 || !file) return;
+    const portfolioName = file.name.replace(/\.[^/.]+$/, "");
+    onConfirm(portfolioName, parsedHoldings);
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onCancel}>
+      <div className="modal-card" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 520 }}>
+        <div className="modal-title">📁 Upload Portfolio</div>
+        <form onSubmit={handleSubmit}>
+          
+          <div 
+            className={`drag-drop-zone ${dragActive ? 'drag-active' : ''} ${file ? 'has-file' : ''}`}
+            onDragEnter={handleDrag}
+            onDragOver={handleDrag}
+            onDragLeave={handleDrag}
+            onDrop={handleDrop}
+          >
+            <input 
+              type="file" 
+              id="file-upload-input" 
+              className="file-upload-input" 
+              accept=".csv"
+              onChange={handleChange}
+            />
+            <label htmlFor="file-upload-input" className="file-upload-label">
+              <div className="file-upload-icon">{file ? '📄' : '📥'}</div>
+              <div className="file-upload-text">
+                {file ? (
+                  <strong>{file.name}</strong>
+                ) : (
+                  <span>Drag and drop your portfolio CSV file, or <strong>browse files</strong></span>
+                )}
+              </div>
+              <span className="file-upload-subtext">CSV must contain columns: symbol, shares, avg_cost (optional)</span>
+            </label>
+          </div>
+
+          {error && (
+            <div style={{ color: 'var(--danger)', fontSize: 13, marginTop: 10, textAlign: 'center', fontWeight: 500 }}>
+              ⚠️ {error}
+            </div>
+          )}
+
+          {parsedHoldings.length > 0 && (
+            <div style={{ marginTop: 16 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6, display: 'flex', justifyContent: 'space-between' }}>
+                <span>Parsed Preview</span>
+                <span>{parsedHoldings.length} symbols found</span>
+              </div>
+              <div style={{ maxHeight: 150, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 6, background: 'var(--surface)' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                  <thead>
+                    <tr style={{ background: 'var(--surface-2)', borderBottom: '1px solid var(--border)', textAlign: 'left' }}>
+                      <th style={{ padding: '6px 10px', color: 'var(--text-muted)' }}>Symbol</th>
+                      <th style={{ padding: '6px 10px', color: 'var(--text-muted)' }}>Shares</th>
+                      <th style={{ padding: '6px 10px', color: 'var(--text-muted)' }}>Avg Cost</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {parsedHoldings.map((h, i) => (
+                      <tr key={i} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
+                        <td style={{ padding: '6px 10px', fontFamily: 'var(--font-mono)', fontWeight: 600, color: 'var(--accent)' }}>{h.symbol}</td>
+                        <td style={{ padding: '6px 10px', fontFamily: 'var(--font-mono)' }}>{h.shares}</td>
+                        <td style={{ padding: '6px 10px', fontFamily: 'var(--font-mono)' }}>{h.avg_cost != null ? `$${h.avg_cost.toFixed(2)}` : '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          <div className="modal-actions">
+            <button type="button" className="modal-cancel" onClick={onCancel}>Cancel</button>
+            <button type="submit" className="modal-confirm" disabled={parsedHoldings.length === 0}>
+              Confirm Import
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 export default function Dashboard({ token, user, onLogout }) {
   const now = useClockTick();
 
@@ -101,6 +287,7 @@ export default function Dashboard({ token, user, onLogout }) {
   const [livePrices, setLivePrices]     = useState({});
   const [wsStatus, setWsStatus]         = useState('disconnected');
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showUploadModal, setShowUploadModal] = useState(false);
   const [loading, setLoading]           = useState(true);
 
   const wsRef = useRef(null);
@@ -230,6 +417,34 @@ export default function Dashboard({ token, user, onLogout }) {
     }
   };
 
+  const handleUploadPortfolio = async (name, parsedHoldings) => {
+    try {
+      setLoading(true);
+      setShowUploadModal(false);
+      
+      const newPort = await api.createPortfolio(token, name, "SPY", "USD");
+      
+      for (const h of parsedHoldings) {
+        await api.addHolding(token, newPort.id, h.symbol, h.asset_type, h.shares, h.avg_cost);
+      }
+
+      const data = await api.getPortfolios(token);
+      setPortfolios(data);
+      setActivePortId(newPort.id);
+      
+      const hold = await api.getHoldings(token, newPort.id);
+      setHoldings(hold);
+      
+      const risk = await api.getRisk(token, newPort.id);
+      setRiskData(risk);
+    } catch (err) {
+      console.error('Failed to import portfolio:', err);
+      alert('Failed to import portfolio: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // ── Delete portfolio ─────────────────────────────────────
   const handleDeletePortfolio = async (id, e) => {
     e.stopPropagation();
@@ -337,9 +552,14 @@ export default function Dashboard({ token, user, onLogout }) {
             <button className="sidebar-create-btn" onClick={() => setShowCreateModal(true)}>
               ＋ New Portfolio
             </button>
-            <button className="sidebar-demo-btn" onClick={handleCreateDemoPortfolio} style={{ width: '100%', padding: '8px 12px', background: 'transparent', border: '1px dashed var(--accent-color)', color: 'var(--accent-color)', borderRadius: 8, fontSize: 12, fontWeight: 500, cursor: 'pointer', marginTop: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-              🤖 Create Demo Portfolio
-            </button>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginTop: 6 }}>
+              <button className="sidebar-demo-btn" onClick={handleCreateDemoPortfolio} style={{ width: '100%', padding: '8px 6px', background: 'transparent', border: '1px dashed var(--accent-color)', color: 'var(--accent-color)', borderRadius: 8, fontSize: 11, fontWeight: 500, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
+                🤖 Demo Mode
+              </button>
+              <button className="sidebar-demo-btn" onClick={() => setShowUploadModal(true)} style={{ width: '100%', padding: '8px 6px', background: 'transparent', border: '1px dashed var(--accent-color)', color: 'var(--accent-color)', borderRadius: 8, fontSize: 11, fontWeight: 500, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
+                📁 Upload Port
+              </button>
+            </div>
             <div className="portfolio-list">
               {loading ? (
                 <>
@@ -434,7 +654,7 @@ export default function Dashboard({ token, user, onLogout }) {
               <div className="empty-desc">
                 Create a new portfolio to start tracking your risk metrics, holdings, and performance.
               </div>
-              <div style={{ display: 'flex', gap: 12, marginTop: 20 }}>
+              <div style={{ display: 'flex', gap: 12, marginTop: 20, flexWrap: 'wrap', justifyContent: 'center' }}>
                 <button
                   className="sidebar-create-btn"
                   style={{ width: 'auto', padding: '10px 24px' }}
@@ -448,6 +668,13 @@ export default function Dashboard({ token, user, onLogout }) {
                   onClick={handleCreateDemoPortfolio}
                 >
                   🤖 Create Demo Portfolio
+                </button>
+                <button
+                  className="sidebar-demo-btn"
+                  style={{ width: 'auto', padding: '10px 24px', background: 'transparent', border: '1px dashed var(--accent-color)', color: 'var(--accent-color)', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
+                  onClick={() => setShowUploadModal(true)}
+                >
+                  📁 Upload Portfolio
                 </button>
               </div>
             </div>
@@ -579,6 +806,14 @@ export default function Dashboard({ token, user, onLogout }) {
         <CreatePortfolioModal
           onConfirm={handleCreatePortfolio}
           onCancel={() => setShowCreateModal(false)}
+        />
+      )}
+
+      {/* Upload Portfolio Modal */}
+      {showUploadModal && (
+        <UploadPortfolioModal
+          onConfirm={handleUploadPortfolio}
+          onCancel={() => setShowUploadModal(false)}
         />
       )}
     </div>

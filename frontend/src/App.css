@@ -2130,3 +2130,64 @@ input:focus, select:focus, textarea:focus {
   transform: translateY(-1px);
 }
 
+/* ── File Upload Drag and Drop Zone ── */
+.drag-drop-zone {
+  border: 2px dashed var(--border-light);
+  border-radius: var(--radius-lg);
+  padding: 32px 20px;
+  text-align: center;
+  background: rgba(255, 255, 255, 0.01);
+  cursor: pointer;
+  transition: all var(--transition);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.drag-drop-zone.drag-active {
+  border-color: var(--accent);
+  background: var(--accent-dim);
+  box-shadow: 0 0 20px rgba(0, 212, 170, 0.1);
+}
+
+.drag-drop-zone.has-file {
+  border-color: rgba(0, 212, 170, 0.4);
+  background: rgba(0, 212, 170, 0.02);
+}
+
+.file-upload-input {
+  display: none;
+}
+
+.file-upload-label {
+  cursor: pointer;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.file-upload-icon {
+  font-size: 36px;
+  line-height: 1;
+}
+
+.file-upload-text {
+  font-size: 14px;
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+
+.file-upload-text strong {
+  color: var(--accent);
+}
+
+.file-upload-subtext {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
