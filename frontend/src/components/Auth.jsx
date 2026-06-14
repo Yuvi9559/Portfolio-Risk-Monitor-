@@ -92,16 +92,29 @@ export default function Auth({ onLogin }) {
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
             {!BYPASS_GOOGLE_AUTH ? (
-              <GoogleLogin
-                onSuccess={handleGoogleSuccess}
-                onError={handleGoogleError}
-                useOneTap={false}
-                theme="filled_black"
-                shape="rectangular"
-                size="large"
-                text="signin_with"
-                width="384"
-              />
+              <div style={{
+                background: 'rgba(255, 255, 255, 0.02)',
+                border: '1px solid var(--border)',
+                borderRadius: '8px',
+                padding: '10px',
+                width: '384px',
+                maxWidth: '100%',
+                display: 'flex',
+                justifyContent: 'center',
+              }}
+              className="google-login-container"
+              >
+                <GoogleLogin
+                  onSuccess={handleGoogleSuccess}
+                  onError={handleGoogleError}
+                  useOneTap={false}
+                  theme="filled_black"
+                  shape="rectangular"
+                  size="large"
+                  text="signin_with"
+                  width="364"
+                />
+              </div>
             ) : (
               <button
                 className="google-btn"

@@ -596,6 +596,10 @@ input:focus, select:focus, textarea:focus {
 .nav-btn.active {
   background: var(--accent-dim);
   color: var(--accent);
+  border-left: 3px solid var(--accent);
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  padding-left: 9px;
 }
 
 .nav-btn .nav-icon {
@@ -2111,5 +2115,18 @@ input:focus, select:focus, textarea:focus {
     grid-template-columns: 1fr;
     gap: 8px;
   }
+}
+
+/* ── Google Login Card Glow Redesign ── */
+.google-login-container {
+  transition: border-color 0.2s cubic-bezier(0.4, 0, 0.2, 1),
+              box-shadow 0.2s cubic-bezier(0.4, 0, 0.2, 1),
+              transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.google-login-container:hover {
+  border-color: rgba(0, 212, 170, 0.4) !important;
+  box-shadow: 0 4px 24px rgba(0, 212, 170, 0.08) !important;
+  transform: translateY(-1px);
 }
 
