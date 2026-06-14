@@ -34,7 +34,7 @@ security = HTTPBearer()
 # ─────────────────────────────────────────────────────────────────────────────
 # Google token verification
 # ─────────────────────────────────────────────────────────────────────────────
-BYPASS_GOOGLE_AUTH = True
+BYPASS_GOOGLE_AUTH = False
 
 def verify_google_token(id_token: str) -> Dict[str, Any]:
     """Verify a Google ID token and return the user's info dict.

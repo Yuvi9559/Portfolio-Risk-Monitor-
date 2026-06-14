@@ -9,7 +9,7 @@ import React, { useState } from 'react';
 import { GoogleLogin } from '@react-oauth/google';
 import api from '../services/api';
 
-const BYPASS_GOOGLE_AUTH = true;
+const BYPASS_GOOGLE_AUTH = false;
 
 const FEATURES = [
   { icon: '📊', label: 'Value at Risk (VaR) Analysis' },
