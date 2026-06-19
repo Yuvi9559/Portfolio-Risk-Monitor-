@@ -29,6 +29,16 @@ export default function App() {
     }
   }, [session]);
 
+  // Global handler to log out if API returns 401 Unauthorized
+  useEffect(() => {
+    const handleUnauthorized = () => {
+      console.warn('[Session] Stale session detected, logging out...');
+      setSession(null);
+    };
+    window.addEventListener('api-unauthorized', handleUnauthorized);
+    return () => window.removeEventListener('api-unauthorized', handleUnauthorized);
+  }, []);
+
   const handleLogin = (data) => {
     // data: { access_token, user: { email, name, picture } }
     setSession(data);

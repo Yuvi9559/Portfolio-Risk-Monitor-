@@ -31,6 +31,9 @@ async function request(method, path, body = null, token = null) {
       const err = await res.json();
       msg = err.detail || err.message || msg;
     } catch (_) {}
+    if (res.status === 401) {
+      window.dispatchEvent(new CustomEvent('api-unauthorized'));
+    }
     throw new Error(msg);
   }
 
@@ -113,6 +116,9 @@ const api = {
         const err = await res.json();
         msg = err.detail || err.message || msg;
       } catch (_) {}
+      if (res.status === 401) {
+        window.dispatchEvent(new CustomEvent('api-unauthorized'));
+      }
       throw new Error(msg);
     }
 

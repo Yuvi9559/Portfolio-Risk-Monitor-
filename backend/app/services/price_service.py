@@ -7,6 +7,8 @@ from typing import List, Optional
 import pandas as pd
 import yfinance as yf
 
+from app.config import get_settings
+
 logger = logging.getLogger(__name__)
 
 # ── Optional Redis caching ────────────────────────────────────────────────────
@@ -86,16 +88,33 @@ def _fetch_price_sync(symbol: str) -> Optional[float]:
 # Price history
 # ─────────────────────────────────────────────────────────────────────────────
 async def get_price_history(symbols: List[str], days: int) -> Optional[pd.DataFrame]:
-    """Download close-price history for a list of symbols.
-
-    Returns a DataFrame with symbols as columns and dates as index.
-    Handles US stocks, Indian stocks (.NS/.BO), crypto (BTC-USD), ETFs, forex.
-    """
+    """Download close-price history for a list of symbols. Caches in Redis."""
     if not symbols:
         return None
 
+    sorted_symbols = sorted(symbols)
+    cache_key = f"history:price:{','.join(sorted_symbols)}:days:{days}"
+    
+    cached = await _redis_get(cache_key)
+    if cached is not None:
+        try:
+            df = pd.read_json(cached, orient='split')
+            if not df.empty:
+                return df
+        except Exception as exc:
+            logger.warning("Failed to parse cached price history: %s", exc)
+
     loop = asyncio.get_running_loop()
     df = await loop.run_in_executor(None, _fetch_history_sync, symbols, days)
+
+    if df is not None and not df.empty:
+        try:
+            settings = get_settings()
+            df_json = df.to_json(orient='split')
+            await _redis_set(cache_key, df_json, ttl=settings.PRICE_HISTORY_CACHE_TTL)
+        except Exception as exc:
+            logger.warning("Failed to cache price history: %s", exc)
+
     return df
 
 
@@ -136,9 +155,32 @@ def _fetch_history_sync(symbols: List[str], days: int) -> Optional[pd.DataFrame]
 # Benchmark history
 # ─────────────────────────────────────────────────────────────────────────────
 async def get_benchmark_history(benchmark: str, days: int) -> Optional[pd.Series]:
-    """Download close-price history for a benchmark ticker (e.g., SPY, ^NSEI)."""
+    """Download close-price history for a benchmark ticker. Caches in Redis."""
+    if not benchmark:
+        return None
+
+    cache_key = f"history:benchmark:{benchmark}:days:{days}"
+
+    cached = await _redis_get(cache_key)
+    if cached is not None:
+        try:
+            series = pd.read_json(cached, orient='split', typ='series')
+            if not series.empty:
+                return series
+        except Exception as exc:
+            logger.warning("Failed to parse cached benchmark history: %s", exc)
+
     loop = asyncio.get_running_loop()
     series = await loop.run_in_executor(None, _fetch_benchmark_sync, benchmark, days)
+
+    if series is not None and not series.empty:
+        try:
+            settings = get_settings()
+            series_json = series.to_json(orient='split')
+            await _redis_set(cache_key, series_json, ttl=settings.PRICE_HISTORY_CACHE_TTL)
+        except Exception as exc:
+            logger.warning("Failed to cache benchmark history: %s", exc)
+
     return series
 
 

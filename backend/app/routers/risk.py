@@ -21,6 +21,9 @@ from app.services import price_service, risk_engine
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
+# In-memory backup cache if Redis is unavailable or down
+_in_memory_risk_cache = {}
+
 router = APIRouter(prefix="/risk", tags=["Risk"])
 
 
@@ -33,6 +36,44 @@ async def get_risk_metrics(
     """Compute full risk metrics for a portfolio, persist a snapshot and return results."""
     portfolio = await _assert_owner(portfolio_id, current_user.id, db)
 
+    cache_key = f"portfolio_risk:{portfolio_id}"
+    
+    # 1. Try to read from Redis
+    if price_service._redis_client is not None:
+        try:
+            cached = await price_service._redis_get(cache_key)
+            if cached:
+                return RiskMetrics.model_validate_json(cached)
+        except Exception as e:
+            logger.warning("Redis cache read error for portfolio %s: %s", portfolio_id, e)
+
+    # 2. Try to read from in-memory fallback cache
+    now_ts = datetime.now(timezone.utc)
+    if portfolio_id in _in_memory_risk_cache:
+        cached_ts, cached_metrics = _in_memory_risk_cache[portfolio_id]
+        if (now_ts - cached_ts).total_seconds() < settings.RISK_CACHE_TTL:
+            logger.info("Found fresh in-memory risk metrics cache for portfolio %s", portfolio_id)
+            return RiskMetrics.model_validate(cached_metrics)
+
+    # 3. Cache stampede protection using a lock
+    lock_key = f"lock:risk:{portfolio_id}"
+    lock_acquired = False
+
+    if price_service._redis_client is not None:
+        try:
+            lock_val = str(uuid.uuid4())
+            lock_acquired = await price_service._redis_client.set(lock_key, lock_val, ex=10, nx=True)
+        except Exception as e:
+            logger.warning("Failed to acquire Redis lock for portfolio %s: %s", portfolio_id, e)
+
+    # If lock wasn't acquired, another request is calculating. Wait and poll cache
+    if not lock_acquired and price_service._redis_client is not None:
+        for _ in range(6):
+            await asyncio.sleep(0.5)
+            cached = await price_service._redis_get(cache_key)
+            if cached:
+                return RiskMetrics.model_validate_json(cached)
+
     # ── Fetch holdings ────────────────────────────────────────────────────────
     result = await db.execute(
         select(Holding).where(Holding.portfolio_id == portfolio_id)
@@ -40,6 +81,8 @@ async def get_risk_metrics(
     holdings = result.scalars().all()
 
     if not holdings:
+        if lock_acquired and price_service._redis_client is not None:
+            await price_service._redis_client.delete(lock_key)
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Portfolio has no holdings – add at least one holding first.",
@@ -50,7 +93,7 @@ async def get_risk_metrics(
         h.symbol: float(h.shares) for h in holdings
     }
 
-    # ── Fetch price history ───────────────────────────────────────────────────
+    # ── Fetch price history (Redis-cached) ────────────────────────────────────
     lookback = settings.LOOKBACK_DAYS
     prices_df = await price_service.get_price_history(symbols, lookback)
     benchmark_series = await price_service.get_benchmark_history(
@@ -58,6 +101,8 @@ async def get_risk_metrics(
     )
 
     if prices_df is None or prices_df.empty:
+        if lock_acquired and price_service._redis_client is not None:
+            await price_service._redis_client.delete(lock_key)
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Could not fetch price history for the portfolio symbols.",
@@ -132,7 +177,7 @@ async def get_risk_metrics(
             )
         )
 
-    return RiskMetrics(
+    response_metrics = RiskMetrics(
         portfolio_id=str(portfolio_id),
         portfolio_value=risk_result.portfolio_value,
         daily_return_pct=risk_result.daily_return_pct,
@@ -150,6 +195,21 @@ async def get_risk_metrics(
         monte_carlo=mc_result,
         holdings=enriched_holdings,
     )
+
+    # 4. Save to caches (Redis and backup in-memory)
+    try:
+        # Cache to Redis
+        if price_service._redis_client is not None:
+            await price_service._redis_set(cache_key, response_metrics.model_dump_json(), ttl=settings.RISK_CACHE_TTL)
+            if lock_acquired:
+                await price_service._redis_client.delete(lock_key)
+
+        # Cache to in-memory fallback
+        _in_memory_risk_cache[portfolio_id] = (datetime.now(timezone.utc), response_metrics)
+    except Exception as e:
+        logger.warning("Failed to cache calculated risk metrics: %s", e)
+
+    return response_metrics
 
 
 @router.get("/{portfolio_id}/history", response_model=List[RiskSnapshotResponse])

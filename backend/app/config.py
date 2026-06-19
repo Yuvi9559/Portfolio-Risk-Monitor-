@@ -32,6 +32,10 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440  # 24 hours
 
+    # ── Caching ──────────────────────────────────────────────────────────────
+    RISK_CACHE_TTL: int = 900  # 15 minutes
+    PRICE_HISTORY_CACHE_TTL: int = 3600  # 1 hour
+
     # ── Google OAuth ─────────────────────────────────────────────────────────
     GOOGLE_CLIENT_ID: str = "736682930147-2p9ee01tarshsu87iihdovf2qf9aps1c.apps.googleusercontent.com"
 

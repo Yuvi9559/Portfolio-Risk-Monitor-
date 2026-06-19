@@ -94,3 +94,6 @@ SELECT add_continuous_aggregate_policy('prices_daily',
     schedule_interval => INTERVAL '1 hour',
     if_not_exists => TRUE
 );
+
+-- Extra index for scalable querying
+CREATE INDEX IF NOT EXISTS idx_risk_snapshots_portfolio_ts ON risk_snapshots(portfolio_id, ts DESC);
