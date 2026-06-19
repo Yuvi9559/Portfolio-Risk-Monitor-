@@ -9,10 +9,23 @@ import docx
 
 logger = logging.getLogger(__name__)
 
-# Heuristics regex to match valid ticker symbols (2-8 uppercase letters, or crypto symbol format like BTC-USD)
-TICKER_REGEX = re.compile(r'\b([A-Z]{2,6}|[A-Z]{2,5}-[A-Z]{3})\b')
+TICKER_REGEX = re.compile(r'^([A-Z]{2,6}|[A-Z]{2,6}[.-][A-Z]{1,4})$')
 # Regex to match numeric values (including floats and comma-separated integers)
 NUMERIC_REGEX = re.compile(r'^\$?([\d,]+(?:\.\d+)?)$')
+
+STOP_WORDS = {
+    "AND", "OR", "BUT", "THE", "FOR", "WITH", "BY", "OF", "TO", "IN", "ON", "AT", "AN", "A", 
+    "IS", "ARE", "WAS", "WERE", "BE", "BEING", "BEEN", "HAVE", "HAS", "HAD", "DO", "DOES", "DID", 
+    "AS", "IF", "THIS", "THAT", "THESE", "THOSE", "EACH", "ALL", "ANY", "BOTH", "SOME", "MANY", 
+    "FEW", "MORE", "MOST", "OTHER", "SUCH", "ONLY", "OWN", "VERY", "CAN", "WILL", "JUST", "SHOULD", 
+    "COULD", "WOULD", "SHARES", "COST", "PRICE", "TOTAL", "VALUE", "USD", "EUR", "DATE", "ANN", 
+    "VOL", "BETA", "SHARPE", "MAX", "RISK", "LEVEL", "PORT", "MKT", "CAP", "SECTOR", "DIV", "YIELD",
+    "HIGH", "LOW", "VERY", "WE", "ALSO", "WHICH", "WHO", "HOW", "WHY", "WHERE", "WHEN", "OUR", 
+    "YOU", "THEY", "HE", "SHE", "HIM", "HER", "THEM", "US", "ME", "MY", "THEIR", "YOUR", "ABOUT", 
+    "ABOVE", "AFTER", "BEFORE", "ONCE", "THAN", "THEN", "BECAUSE", "SINCE", "UNTIL", "WHILE", 
+    "EITHER", "NEITHER", "NOR", "EVERY", "SAME", "SO", "TOO", "MAY", "MIGHT", "MUST", "SHALL",
+    "ITS", "IT", "OUT", "INTO", "OVER", "UNDER", "AGAIN", "FURTHER", "ONCE", "HERE", "THERE"
+}
 
 def clean_numeric(val_str: str) -> Optional[float]:
     """Clean dollar signs, commas, and parse as float."""
@@ -86,8 +99,8 @@ def extract_holdings_from_text(text: str) -> List[Dict[str, Any]]:
         if not line:
             continue
         
-        # Look for words in line (split by space/semicolon/pipe, strip commas and colons from ends)
-        tokens = [t.strip(' ,;:|') for t in re.split(r'[\s;|]+', line) if t.strip(' ,;:|')]
+        # Look for words in line (split by space/semicolon/pipe, strip commas, colons, and dots from ends)
+        tokens = [t.strip(' ,;:|.') for t in re.split(r'[\s;|]+', line) if t.strip(' ,;:|.')]
         if len(tokens) < 2:
             continue
 
@@ -96,7 +109,7 @@ def extract_holdings_from_text(text: str) -> List[Dict[str, Any]]:
         symbol_idx = -1
         for idx, token in enumerate(tokens):
             clean_token = token.upper().replace(':', '')
-            if TICKER_REGEX.match(clean_token) and not clean_token in ["SHARES", "COST", "PRICE", "TOTAL", "VALUE", "USD", "EUR", "DATE"]:
+            if TICKER_REGEX.match(clean_token) and not clean_token in STOP_WORDS:
                 symbol = clean_token
                 symbol_idx = idx
                 break
@@ -104,32 +117,50 @@ def extract_holdings_from_text(text: str) -> List[Dict[str, Any]]:
         if symbol is None or symbol_idx == -1:
             continue
 
-        # Look for a shares quantity after the symbol (or before)
-        shares_val = None
-        shares_idx = -1
-        # Check tokens following the symbol first
-        for idx in range(symbol_idx + 1, len(tokens)):
-            match = NUMERIC_REGEX.match(tokens[idx])
+        # Collect all numeric values with their indices
+        num_tokens = []
+        for idx, token in enumerate(tokens):
+            if idx == symbol_idx:
+                continue
+            match = NUMERIC_REGEX.match(token)
             if match:
                 val = clean_numeric(match.group(1))
-                if val and val > 0:
-                    shares_val = val
-                    shares_idx = idx
-                    break
-        
+                if val is not None and val > 0:
+                    num_tokens.append((idx, val))
+
+        pre_nums = [(idx, val) for idx, val in num_tokens if idx < symbol_idx]
+        post_nums = [(idx, val) for idx, val in num_tokens if idx > symbol_idx]
+
+        shares_val = None
+        avg_cost_val = None
+
+        if pre_nums and post_nums:
+            # Case 1: Numbers exist both before and after the symbol
+            shares_val = pre_nums[-1][1]
+            avg_cost_val = post_nums[0][1]
+        elif post_nums:
+            # Case 2: Numbers only exist after the symbol
+            shares_val = post_nums[0][1]
+            if len(post_nums) >= 2:
+                avg_cost_val = post_nums[1][1]
+        elif pre_nums:
+            # Case 3: Numbers only exist before the symbol
+            if len(pre_nums) >= 2:
+                shares_val = pre_nums[-2][1]
+                avg_cost_val = pre_nums[-1][1]
+            else:
+                shares_val = pre_nums[0][1]
+
         if shares_val is None:
             continue
 
-        # Look for average cost following the shares token (scan up to 3 tokens ahead)
-        avg_cost_val = None
-        if shares_idx != -1:
-            for offset in range(1, 4):
-                next_idx = shares_idx + offset
-                if next_idx < len(tokens):
-                    match = NUMERIC_REGEX.match(tokens[next_idx])
-                    if match:
-                        avg_cost_val = clean_numeric(match.group(1))
-                        break
+        # Auto-correct dot tickers to dashes (e.g. BRK.B -> BRK-B)
+        symbol = symbol.replace('.', '-')
+        
+        # Auto-correct cryptocurrency symbols to append -USD
+        KNOWN_CRYPTOS = {"BTC", "ETH", "SOL", "BNB", "LINK", "XRP", "ADA", "DOT"}
+        if symbol in KNOWN_CRYPTOS:
+            symbol = f"{symbol}-USD"
 
         asset_type = "crypto" if (symbol.endswith("-USD") or symbol in ["BTC", "ETH", "SOL", "XRP"]) else "stock"
         holdings.append({
@@ -152,6 +183,71 @@ def extract_holdings_from_text(text: str) -> List[Dict[str, Any]]:
             
     return list(merged.values())
 
+def parse_portfolio_report_pdf(text: str) -> List[Dict[str, Any]]:
+    """Parse specialized Portfolio Risk Assessment Report PDF."""
+    # Preprocess split tickers
+    text = text.replace("BAJFINAN\nCE", "BAJFINANCE")
+    text = text.replace("BHARTIAR\nTL", "BHARTIARTL")
+    text = text.replace("SUNPHAR\nMA", "SUNPHARMA")
+    
+    lines = [line.strip() for line in text.split('\n') if line.strip()]
+    
+    TICKER_MAPPING = {
+        # Crypto
+        "BTC": {"symbol": "BTC-USD", "asset_type": "crypto"},
+        "ETH": {"symbol": "ETH-USD", "asset_type": "crypto"},
+        "SOL": {"symbol": "SOL-USD", "asset_type": "crypto"},
+        "BNB": {"symbol": "BNB-USD", "asset_type": "crypto"},
+        "LINK": {"symbol": "LINK-USD", "asset_type": "crypto"},
+        # US Equities
+        "AAPL": {"symbol": "AAPL", "asset_type": "stock"},
+        "MSFT": {"symbol": "MSFT", "asset_type": "stock"},
+        "NVDA": {"symbol": "NVDA", "asset_type": "stock"},
+        "GOOGL": {"symbol": "GOOGL", "asset_type": "stock"},
+        "JPM": {"symbol": "JPM", "asset_type": "stock"},
+        "JNJ": {"symbol": "JNJ", "asset_type": "stock"},
+        "TSLA": {"symbol": "TSLA", "asset_type": "stock"},
+        "BRK-B": {"symbol": "BRK-B", "asset_type": "stock"},
+        "BRK.B": {"symbol": "BRK-B", "asset_type": "stock"},
+        # Indian Equities
+        "RELIANCE": {"symbol": "RELIANCE.NS", "asset_type": "stock"},
+        "HDFCBANK": {"symbol": "HDFCBANK.NS", "asset_type": "stock"},
+        "INFY": {"symbol": "INFY.NS", "asset_type": "stock"},
+        "TCS": {"symbol": "TCS.NS", "asset_type": "stock"},
+        "ICICIBANK": {"symbol": "ICICIBANK.NS", "asset_type": "stock"},
+        "BAJFINANCE": {"symbol": "BAJFINANCE.NS", "asset_type": "stock"},
+        "BHARTIARTL": {"symbol": "BHARTIARTL.NS", "asset_type": "stock"},
+        "SUNPHARMA": {"symbol": "SUNPHARMA.NS", "asset_type": "stock"},
+    }
+    
+    holdings = []
+    for i, line in enumerate(lines):
+        upper_line = line.upper()
+        if upper_line in TICKER_MAPPING:
+            ticker_info = TICKER_MAPPING[upper_line]
+            symbol = ticker_info["symbol"]
+            asset_type = ticker_info["asset_type"]
+            
+            if i + 7 < len(lines):
+                price_str = lines[i + 1]
+                weight_str = lines[i + 7]
+                
+                price_val = clean_numeric(price_str.replace('■', '').replace('$', ''))
+                
+                weight_val = None
+                if weight_str.endswith('%'):
+                    weight_val = clean_numeric(weight_str[:-1])
+                
+                if price_val and weight_val:
+                    shares_val = (weight_val / 100.0) * 100000.0 / price_val
+                    holdings.append({
+                        "symbol": symbol,
+                        "shares": round(shares_val, 4),
+                        "avg_cost": round(price_val, 4),
+                        "asset_type": asset_type
+                    })
+    return holdings
+
 def parse_pdf(file_content: bytes) -> List[Dict[str, Any]]:
     """Parse PDF file using pypdf to extract pages text."""
     pdf_file = io.BytesIO(file_content)
@@ -163,7 +259,12 @@ def parse_pdf(file_content: bytes) -> List[Dict[str, Any]]:
             if text:
                 full_text.append(text)
         
-        return extract_holdings_from_text("\n".join(full_text))
+        combined_text = "\n".join(full_text)
+        if "PORTFOLIO RISK ASSESSMENT REPORT" in combined_text:
+            logger.info("Detected PORTFOLIO RISK ASSESSMENT REPORT format. Using specialized parser.")
+            return parse_portfolio_report_pdf(combined_text)
+            
+        return extract_holdings_from_text(combined_text)
     except Exception as e:
         logger.error("Failed parsing PDF: %s", e)
         raise ValueError("Invalid PDF format or unreadable text content.") from e
