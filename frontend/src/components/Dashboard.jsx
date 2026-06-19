@@ -93,8 +93,8 @@ function CreatePortfolioModal({ onConfirm, onCancel }) {
 function UploadPortfolioModal({ onConfirm, onCancel }) {
   const [dragActive, setDragActive] = useState(false);
   const [file, setFile] = useState(null);
-  const [parsedHoldings, setParsedHoldings] = useState([]);
   const [error, setError] = useState('');
+  const [uploading, setUploading] = useState(false);
 
   const handleDrag = (e) => {
     e.preventDefault();
@@ -107,70 +107,24 @@ function UploadPortfolioModal({ onConfirm, onCancel }) {
   };
 
   const processFile = (selectedFile) => {
-    if (!selectedFile.name.endsWith('.csv')) {
-      setError('Only CSV files are supported at this time.');
+    if (!selectedFile) return;
+
+    // Enforce 10MB limit
+    if (selectedFile.size > 10 * 1024 * 1024) {
+      setError('File size exceeds the maximum limit of 10MB.');
       setFile(null);
-      setParsedHoldings([]);
       return;
     }
+
+    const ext = selectedFile.name.split('.').pop().toLowerCase();
+    if (!['csv', 'pdf', 'docx', 'doc'].includes(ext)) {
+      setError('Unsupported file type. Only CSV, PDF, and DOCX files are allowed.');
+      setFile(null);
+      return;
+    }
+
     setError('');
     setFile(selectedFile);
-
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        const text = e.target.result;
-        const lines = text.split(/\r?\n/);
-        if (lines.length < 2) {
-          throw new Error('CSV file is empty or has no header row.');
-        }
-
-        const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
-        const symIdx = headers.findIndex(h => h.includes('symbol') || h.includes('ticker') || h.includes('asset'));
-        const sharesIdx = headers.findIndex(h => h.includes('shares') || h.includes('qty') || h.includes('quantity'));
-        const costIdx = headers.findIndex(h => h.includes('cost') || h.includes('price') || h.includes('avg'));
-
-        if (symIdx === -1 || sharesIdx === -1) {
-          throw new Error('CSV headers must include "symbol" and "shares" columns.');
-        }
-
-        const holdings = [];
-        for (let i = 1; i < lines.length; i++) {
-          const line = lines[i].trim();
-          if (!line) continue;
-          
-          const cols = line.split(',').map(c => c.trim().replace(/^["']|["']$/g, ''));
-          if (cols.length <= Math.max(symIdx, sharesIdx)) continue;
-
-          const symbol = cols[symIdx].toUpperCase();
-          const shares = parseFloat(cols[sharesIdx]);
-          const avg_cost = costIdx !== -1 ? parseFloat(cols[costIdx]) : null;
-
-          if (!symbol || isNaN(shares) || shares <= 0) {
-            continue;
-          }
-
-          let asset_type = 'stock';
-          if (symbol.endsWith('-USD') || ['BTC', 'ETH', 'SOL', 'ADA', 'XRP'].includes(symbol)) {
-            asset_type = 'crypto';
-          }
-
-          holdings.push({ symbol, shares, avg_cost: isNaN(avg_cost) ? null : avg_cost, asset_type });
-        }
-
-        if (holdings.length === 0) {
-          throw new Error('No valid holdings parsed from CSV.');
-        }
-
-        setParsedHoldings(holdings);
-      } catch (err) {
-        console.error(err);
-        setError(err.message || 'Failed to parse file.');
-        setFile(null);
-        setParsedHoldings([]);
-      }
-    };
-    reader.readAsText(selectedFile);
   };
 
   const handleDrop = (e) => {
@@ -189,43 +143,56 @@ function UploadPortfolioModal({ onConfirm, onCancel }) {
     }
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    if (parsedHoldings.length === 0 || !file) return;
-    const portfolioName = file.name.replace(/\.[^/.]+$/, "");
-    onConfirm(portfolioName, parsedHoldings);
+    if (!file || uploading) return;
+    setUploading(true);
+    setError('');
+    try {
+      await onConfirm(file);
+    } catch (err) {
+      setError(err.message || 'Failed to upload portfolio.');
+      setUploading(false);
+    }
   };
 
   return (
-    <div className="modal-overlay" onClick={onCancel}>
+    <div className="modal-overlay" onClick={uploading ? undefined : onCancel}>
       <div className="modal-card" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 520 }}>
         <div className="modal-title">📁 Upload Portfolio</div>
         <form onSubmit={handleSubmit}>
           
           <div 
-            className={`drag-drop-zone ${dragActive ? 'drag-active' : ''} ${file ? 'has-file' : ''}`}
-            onDragEnter={handleDrag}
-            onDragOver={handleDrag}
-            onDragLeave={handleDrag}
-            onDrop={handleDrop}
+            className={`drag-drop-zone ${dragActive ? 'drag-active' : ''} ${file ? 'has-file' : ''} ${uploading ? 'uploading' : ''}`}
+            onDragEnter={uploading ? undefined : handleDrag}
+            onDragOver={uploading ? undefined : handleDrag}
+            onDragLeave={uploading ? undefined : handleDrag}
+            onDrop={uploading ? undefined : handleDrop}
           >
             <input 
               type="file" 
               id="file-upload-input" 
               className="file-upload-input" 
-              accept=".csv"
+              accept=".csv,.pdf,.docx,.doc"
               onChange={handleChange}
+              disabled={uploading}
             />
-            <label htmlFor="file-upload-input" className="file-upload-label">
-              <div className="file-upload-icon">{file ? '📄' : '📥'}</div>
+            <label htmlFor="file-upload-input" className="file-upload-label" style={{ cursor: uploading ? 'not-allowed' : 'pointer' }}>
+              <div className="file-upload-icon">{uploading ? '⏳' : file ? '📄' : '📥'}</div>
               <div className="file-upload-text">
-                {file ? (
+                {uploading ? (
+                  <span>Uploading and parsing your portfolio statement...</span>
+                ) : file ? (
                   <strong>{file.name}</strong>
                 ) : (
-                  <span>Drag and drop your portfolio CSV file, or <strong>browse files</strong></span>
+                  <span>Drag and drop your portfolio file, or <strong>browse files</strong></span>
                 )}
               </div>
-              <span className="file-upload-subtext">CSV must contain columns: symbol, shares, avg_cost (optional)</span>
+              <span className="file-upload-subtext">
+                {uploading 
+                  ? 'This may take a moment depending on the file size' 
+                  : 'Supported formats: CSV, PDF, DOCX (Max 10MB)'}
+              </span>
             </label>
           </div>
 
@@ -235,39 +202,11 @@ function UploadPortfolioModal({ onConfirm, onCancel }) {
             </div>
           )}
 
-          {parsedHoldings.length > 0 && (
-            <div style={{ marginTop: 16 }}>
-              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6, display: 'flex', justifyContent: 'space-between' }}>
-                <span>Parsed Preview</span>
-                <span>{parsedHoldings.length} symbols found</span>
-              </div>
-              <div style={{ maxHeight: 150, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 6, background: 'var(--surface)' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                  <thead>
-                    <tr style={{ background: 'var(--surface-2)', borderBottom: '1px solid var(--border)', textAlign: 'left' }}>
-                      <th style={{ padding: '6px 10px', color: 'var(--text-muted)' }}>Symbol</th>
-                      <th style={{ padding: '6px 10px', color: 'var(--text-muted)' }}>Shares</th>
-                      <th style={{ padding: '6px 10px', color: 'var(--text-muted)' }}>Avg Cost</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {parsedHoldings.map((h, i) => (
-                      <tr key={i} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
-                        <td style={{ padding: '6px 10px', fontFamily: 'var(--font-mono)', fontWeight: 600, color: 'var(--accent)' }}>{h.symbol}</td>
-                        <td style={{ padding: '6px 10px', fontFamily: 'var(--font-mono)' }}>{h.shares}</td>
-                        <td style={{ padding: '6px 10px', fontFamily: 'var(--font-mono)' }}>{h.avg_cost != null ? `$${h.avg_cost.toFixed(2)}` : '—'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
           <div className="modal-actions">
-            <button type="button" className="modal-cancel" onClick={onCancel}>Cancel</button>
-            <button type="submit" className="modal-confirm" disabled={parsedHoldings.length === 0}>
-              Confirm Import
+            <button type="button" className="modal-cancel" onClick={onCancel} disabled={uploading}>Cancel</button>
+            <button type="submit" className="modal-confirm" disabled={!file || uploading} style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'center' }}>
+              {uploading && <span className="spinner" />}
+              {uploading ? 'Processing...' : 'Confirm Import'}
             </button>
           </div>
         </form>
@@ -275,6 +214,7 @@ function UploadPortfolioModal({ onConfirm, onCancel }) {
     </div>
   );
 }
+
 
 export default function Dashboard({ token, user, onLogout }) {
   const now = useClockTick();
@@ -417,31 +357,15 @@ export default function Dashboard({ token, user, onLogout }) {
     }
   };
 
-  const handleUploadPortfolio = async (name, parsedHoldings) => {
+  const handleUploadPortfolio = async (file) => {
     try {
-      setLoading(true);
-      setShowUploadModal(false);
-      
-      const newPort = await api.createPortfolio(token, name, "SPY", "USD");
-      
-      for (const h of parsedHoldings) {
-        await api.addHolding(token, newPort.id, h.symbol, h.asset_type, h.shares, h.avg_cost);
-      }
-
-      const data = await api.getPortfolios(token);
-      setPortfolios(data);
+      const newPort = await api.uploadPortfolioFile(token, file);
+      setPortfolios((prev) => [...prev, newPort]);
       setActivePortId(newPort.id);
-      
-      const hold = await api.getHoldings(token, newPort.id);
-      setHoldings(hold);
-      
-      const risk = await api.getRisk(token, newPort.id);
-      setRiskData(risk);
+      setShowUploadModal(false);
     } catch (err) {
       console.error('Failed to import portfolio:', err);
-      alert('Failed to import portfolio: ' + err.message);
-    } finally {
-      setLoading(false);
+      throw err;
     }
   };
 

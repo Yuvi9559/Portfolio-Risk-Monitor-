@@ -87,6 +87,40 @@ const api = {
   createPortfolio: (token, name, benchmark = 'SPY', currency = 'USD') =>
     request('POST', '/portfolios', { name, benchmark, currency }, token),
 
+  uploadPortfolioFile: async (token, file) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const headers = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    let res;
+    try {
+      res = await fetch(`${BASE}/portfolios/upload`, {
+        method: 'POST',
+        headers,
+        body: formData,
+      });
+    } catch (networkErr) {
+      console.error(`[API] Network error on POST /portfolios/upload:`, networkErr);
+      throw new Error(
+        `Cannot reach server. Please check your internet connection and try again. (${networkErr.message})`
+      );
+    }
+
+    if (!res.ok) {
+      let msg = `HTTP ${res.status}`;
+      try {
+        const err = await res.json();
+        msg = err.detail || err.message || msg;
+      } catch (_) {}
+      throw new Error(msg);
+    }
+
+    const ct = res.headers.get('content-type') || '';
+    if (ct.includes('application/json')) return res.json();
+    return res;
+  },
+
   deletePortfolio: (token, id) =>
     request('DELETE', `/portfolios/${id}`, null, token),
 

@@ -4,7 +4,7 @@ import logging
 import uuid
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException, status, Response
+from fastapi import APIRouter, Depends, HTTPException, status, Response, UploadFile, File
 from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,6 +14,7 @@ from app.database import get_db
 from app.models import Holding, Portfolio, User
 from app.schemas import HoldingAdd, HoldingResponse, PortfolioCreate, PortfolioResponse
 from app.services import price_service
+from app.services.parser_service import parse_portfolio_file
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +72,68 @@ async def create_portfolio(
     await db.commit()
     await db.refresh(portfolio)
     logger.info("Portfolio '%s' created for user %s", portfolio.name, current_user.email)
+    return PortfolioResponse.model_validate(portfolio)
+
+
+@router.post("/upload", response_model=PortfolioResponse, status_code=status.HTTP_201_CREATED)
+async def upload_portfolio(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> PortfolioResponse:
+    MAX_FILE_SIZE = 10 * 1024 * 1024
+    content = await file.read()
+    if len(content) > MAX_FILE_SIZE:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="File size exceeds the 10MB limit."
+        )
+
+    filename = file.filename or "Uploaded Portfolio"
+    portfolio_name = filename.rsplit('.', 1)[0]
+
+    try:
+        parsed_holdings = parse_portfolio_file(content, filename)
+    except ValueError as val_err:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(val_err)
+        )
+    except Exception as e:
+        logger.error("Error parsing upload: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unexpected error occurred while parsing statement."
+        )
+
+    if not parsed_holdings:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No valid holdings could be parsed from the file. Please check formatting."
+        )
+
+    portfolio = Portfolio(
+        user_id=current_user.id,
+        name=portfolio_name,
+        benchmark="SPY",
+        currency="USD"
+    )
+    db.add(portfolio)
+    await db.flush()
+
+    for h in parsed_holdings:
+        holding = Holding(
+            portfolio_id=portfolio.id,
+            symbol=h["symbol"],
+            asset_type=h["asset_type"],
+            shares=h["shares"],
+            avg_cost=h["avg_cost"]
+        )
+        db.add(holding)
+
+    await db.commit()
+    await db.refresh(portfolio)
+    logger.info("Uploaded portfolio '%s' parsed and created with %s holdings.", portfolio.name, len(parsed_holdings))
     return PortfolioResponse.model_validate(portfolio)
 
 
