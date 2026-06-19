@@ -92,8 +92,7 @@ async def main():
         return
 
     # 2. Setup stress test parameters
-    base_url = "http://localhost:8000"  # Local server URL
-    url = f"{base_url}/portfolios/{portfolio_id}/holdings"  # We can also hit /risk/{portfolio_id}
+    base_url = sys.argv[1] if len(sys.argv) > 1 and sys.argv[1].startswith("http") else "http://localhost:8000"
     url_risk = f"{base_url}/risk/{portfolio_id}"
     
     headers = {"Authorization": f"Bearer {token}"}
@@ -105,15 +104,15 @@ async def main():
     
     sem = asyncio.Semaphore(concurrency_limit)
     
-    # Check if local server is running
+    # Check if target server is running
     async with httpx.AsyncClient() as client:
         try:
             resp = await client.get(f"{base_url}/health")
             if resp.status_code != 200:
                 print(f"Warning: Health check returned status {resp.status_code}")
         except Exception:
-            print("\n❌ Error: Local FastAPI server is not running on http://localhost:8000.")
-            print("Please run the backend server first (e.g. uvicorn app.main:app --reload) to test.")
+            print(f"\n❌ Error: Backend server is not running at {base_url}.")
+            print("Please run the backend server first to test.")
             return
 
         print("\nStarting load test...")
