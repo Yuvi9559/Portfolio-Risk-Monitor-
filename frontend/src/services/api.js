@@ -4,7 +4,7 @@ const BASE =
 
 const WS_BASE = (
   import.meta.env.VITE_WS_URL ||
-  'wss://portfolio-risk-monitor-production.up.railway.app'
+  BASE
 ).replace(/^http/, 'ws');
 
 async function request(method, path, body = null, token = null) {
