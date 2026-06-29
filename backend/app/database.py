@@ -28,6 +28,16 @@ def _make_async_url(url: str) -> str:
 
 ASYNC_DATABASE_URL = _make_async_url(settings.DATABASE_URL)
 
+# Strip sslmode query parameter if present to avoid asyncpg TypeError
+if "?sslmode=" in ASYNC_DATABASE_URL:
+    ASYNC_DATABASE_URL = ASYNC_DATABASE_URL.split("?sslmode=")[0]
+elif "&sslmode=" in ASYNC_DATABASE_URL:
+    ASYNC_DATABASE_URL = ASYNC_DATABASE_URL.split("&sslmode=")[0]
+
+connect_args = {}
+if "neon.tech" in ASYNC_DATABASE_URL or "aws.neon.tech" in ASYNC_DATABASE_URL:
+    connect_args["ssl"] = True
+
 # ── Engine ────────────────────────────────────────────────────────────────────
 engine = create_async_engine(
     ASYNC_DATABASE_URL,
@@ -36,6 +46,7 @@ engine = create_async_engine(
     pool_pre_ping=True,
     echo=settings.DEBUG,
     future=True,
+    connect_args=connect_args,
 )
 
 # ── Session factory ───────────────────────────────────────────────────────────
