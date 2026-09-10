@@ -1,6 +1,6 @@
 const BASE =
   import.meta.env.VITE_API_URL ||
-  'https://portfolio-risk-monitor-production.up.railway.app';
+  'https://yuvraj9559-portfolio-risk-backend.hf.space';
 
 const WS_BASE = (
   import.meta.env.VITE_WS_URL ||
