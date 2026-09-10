@@ -4,9 +4,66 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Portfolio Risk Monitor</title>
+
+    <!-- Font & Resource Preconnections -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet" />
+
+    <!-- Non-blocking Google Fonts loading (Inter & JetBrains Mono) -->
+    <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" media="print" onload="this.media='all'" />
+    <noscript>
+      <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" />
+    </noscript>
+
+    <!-- Critical CSS for immediate LCP rendering -->
+    <style>
+      :root {
+        --bg: #0a0a0f;
+        --surface-2: #1a1a26;
+        --border: #1e1e2e;
+        --border-light: #2a2a3e;
+        --accent: #00d4aa;
+        --text-primary: #e2e8f0;
+        --text-muted: #64748b;
+        --text-faint: #3d4a5c;
+        --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+      }
+      *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+      html, body, #root { height: 100%; width: 100%; overflow: hidden; }
+      body {
+        font-family: var(--font-sans);
+        background: var(--bg);
+        color: var(--text-primary);
+        line-height: 1.5;
+        -webkit-font-smoothing: antialiased;
+      }
+      .auth-wrap {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: var(--bg);
+      }
+      .auth-card {
+        position: relative;
+        width: 100%;
+        max-width: 480px;
+        background: rgba(18, 18, 26, 0.9);
+        border: 1px solid var(--border-light);
+        border-radius: 12px;
+        padding: 48px 48px 40px;
+      }
+      .auth-terms {
+        margin-top: 20px;
+        text-align: center;
+        font-size: 11px;
+        color: var(--text-faint);
+        content-visibility: auto;
+        contain-intrinsic-size: 0 30px;
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>
