@@ -347,8 +347,13 @@ export default function Dashboard({ token, user, onLogout }) {
       const hold = await api.getHoldings(token, demoPort.id);
       setHoldings(hold);
       
-      const risk = await api.getRisk(token, demoPort.id);
-      setRiskData(risk);
+      try {
+        const risk = await api.getRisk(token, demoPort.id);
+        setRiskData(risk);
+      } catch (riskErr) {
+        console.warn('Initial demo risk calculation loading:', riskErr);
+        setRiskData({ isEmpty: true });
+      }
     } catch (err) {
       console.error('Failed to create demo portfolio:', err);
       alert('Error creating demo portfolio: ' + err.message);
